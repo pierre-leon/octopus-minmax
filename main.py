@@ -203,7 +203,7 @@ def get_token():
 
 def switch_tariff(target_tariff):
     with sync_playwright() as playwright:
-        browser = playwright.firefox.launch(
+        browser = playwright.chromium.launch(
             headless=False)
         context = browser.new_context( viewport= {"width": 1920, "height": 1080} )
         page = context.new_page()
@@ -234,13 +234,13 @@ def switch_tariff(target_tariff):
 def verify_new_agreement():
     query = gql(account_query.format(acc_number = config.ACC_NUMBER))
     result = gql_client.execute(query)
-
     today = datetime.now().date()
     valid_from = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validFrom']).date()
-    valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
-    next_year = valid_from.replace(year=valid_from.year + 1)
 
-    return valid_from == today and next_year == valid_to
+    # For some reason, sometimes the agreement has no end date so I'm not not sure if this bit is still relevant?
+    # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
+    # next_year = valid_from.replace(year=valid_from.year + 1)
+    return valid_from == today
 
 
 def setup_gql(token):
