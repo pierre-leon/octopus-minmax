@@ -129,10 +129,18 @@ def get_acc_info():
     query = gql(account_query.format(acc_number = config.ACC_NUMBER))
     result = gql_client.execute(query)
 
-    tariff_code = result['account']['electricityAgreements'][0]['tariff']['tariffCode']
+    tariff_code = next(agreement['tariff']['tariffCode'] 
+        for agreement in result['account']['electricityAgreements'] 
+        if 'tariffCode' in agreement['tariff'])
     region_code = tariff_code[-1]
-    device_id = result['account']['electricityAgreements'][0]['meterPoint']['meters'][0]['smartDevices'][0]['deviceId']
-    curr_stdn_charge = result['account']['electricityAgreements'][0]['tariff']['standingCharge']
+    device_id = next(device['deviceId'] 
+        for agreement in result['account']['electricityAgreements'] 
+        for meter in agreement['meterPoint']['meters'] 
+        for device in meter['smartDevices'] 
+        if 'deviceId' in device)
+    curr_stdn_charge = next(agreement['tariff']['standingCharge'] 
+        for agreement in result['account']['electricityAgreements'] 
+        if 'standingCharge' in agreement['tariff'])
 
     if "GO" in tariff_code:
         current_tariff = "GO"       
@@ -204,7 +212,7 @@ def get_token():
 def switch_tariff(target_tariff):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            headless=False)
+            headless=True)
         context = browser.new_context( viewport= {"width": 1920, "height": 1080} )
         page = context.new_page()
         page.goto("https://octopus.energy/")
@@ -235,7 +243,9 @@ def verify_new_agreement():
     query = gql(account_query.format(acc_number = config.ACC_NUMBER))
     result = gql_client.execute(query)
     today = datetime.now().date()
-    valid_from = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validFrom']).date()
+    valid_from = next(datetime.fromisoformat(agreement['validFrom']).date() 
+        for agreement in result['account']['electricityAgreements'] 
+        if 'validFrom' in agreement)
 
     # For some reason, sometimes the agreement has no end date so I'm not not sure if this bit is still relevant?
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
