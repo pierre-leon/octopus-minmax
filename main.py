@@ -268,7 +268,7 @@ def compare_and_switch():
     potential_costs = calculate_potential_costs(consumption, potential_unit_rates)
    
     total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
-    summary = f"Total potential cost:{total_potential_calculated}p vs current cost: {total_curr_cost}p"
+    summary = f"Total potential cost: £{"{:.2f}".format(total_potential_calculated / 100)} vs current cost: £{"{:.2f}".format(total_curr_cost / 100)}"
     # 2p buffer because cba
     if (total_potential_calculated + 2) < total_curr_cost:
         send_discord_message(summary + "\nInitiating Switch to " + opposite_tariff[curr_tariff] )
