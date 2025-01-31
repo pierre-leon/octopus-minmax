@@ -7,7 +7,7 @@ Due to how Octopus Energy's Smart tariffs work, switching manually makes the *ne
 
 I created this because I've been a long time Agile customer who got tired of the price spikes. I now use this to enjoy the benefits of Agile (cheap days) without the risks (expensive days). 
 
-I personally have this running automatically evey day at 11PM inside a Raspberry Pi docker container, but you can run it wherever you want. It also uses discord webhooks to send you updates and logs, but that's not necessary to work.
+I personally have this running automatically every day at 11PM inside a Raspberry Pi docker container, but you can run it wherever you want. It also uses discord webhooks to send you updates and logs, but that's not necessary to work.
 
 ## How to use
 **Note**: This requires your email/password when using Playwright to log into your account. None of your data goes anywhere except to Octopus Energy.
