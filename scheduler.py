@@ -10,6 +10,8 @@ EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")  # Default to 11PM
 # Track last execution date to ensure we only run once per day
 last_execution_date = None
 
+print(f"Welcome to Octopus MinMax Bot. I will run your comparisons at {EXECUTION_TIME}")
+
 while True:
     now = datetime.now()
     current_time = now.strftime("%H:%M")
