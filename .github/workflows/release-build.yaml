@@ -32,5 +32,5 @@ jobs:
           context: .
           push: true
           tags: |
-            denizenn/octopus-minmax-bot:latest
-            denizenn/octopus-minmax-bot:${{ github.event.release.tag_name }}
+            eelmafia/octopus-minmax-bot:latest
+            eelmafia/octopus-minmax-bot:${{ github.event.release.tag_name }}
