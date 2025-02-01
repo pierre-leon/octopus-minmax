@@ -96,6 +96,7 @@ enrolment_query = """query {{
 }}"""
 
 def send_discord_message(content):
+    print(content)
     if config.DISCORD_WEBHOOK != "":
         content = f"`{content}`"
         data = {
