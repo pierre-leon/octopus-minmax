@@ -35,7 +35,7 @@ docker run -d \
   -e OCTOPUS_PASSWORD="<your_password>" \
   -e EXECUTION_TIME="23:00" \
   -e DISCORD_WEBHOOK="<your_webhook_url>" \
-  eelmafia/octopus-minmax-bot
+  denizenn/octopus-minmax-bot
 ```
 
 or use the docker-compose.yaml **Don't forget to add your environment variables**
