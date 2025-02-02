@@ -25,12 +25,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      # Build and Push the Docker Image
+      # Get repository variables
+      - name: Set Docker image variables
+        run: |
+          echo "DOCKER_IMAGE=${{ vars.DOCKER_IMAGE }}" >> $GITHUB_ENV
+          echo "DOCKER_TAG_PREFIX=${{ vars.DOCKER_TAG_PREFIX || 'latest' }}" >> $GITHUB_ENV
+
+      # Build and Push Docker Image
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
           tags: |
-            eelmafia/octopus-minmax-bot:latest
-            eelmafia/octopus-minmax-bot:${{ github.event.release.tag_name }}
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:${{ github.event.release.tag_name }}
