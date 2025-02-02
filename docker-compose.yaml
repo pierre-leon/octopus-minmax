@@ -6,10 +6,10 @@ services:
     image: eelmafia/octopus-minmax-bot
     restart: unless-stopped
     environment:
-      - ACCOUNT_NUMBER=<your_account_number>
-      - API_TOKEN=<your_api_token>
-      - OCTOPUS_EMAIL=<your_email>
-      - OCTOPUS_PASSWORD=<your_password>
+      - ACC_NUMBER=<your_account_number>
+      - API_KEY=<your_api_key>
+      - OCTOPUS_LOGIN_EMAIL=<your_email>
+      - OCTOPUS_LOGIN_PASSWD=<your_password>
       - EXECUTION_TIME=23:00
       - DISCORD_WEBHOOK=<your_webhook_url>
       - ONE_OFF=false
