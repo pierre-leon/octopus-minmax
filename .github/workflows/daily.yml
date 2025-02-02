@@ -8,6 +8,9 @@
 # jobs:
 #   build:
 #     runs-on: ubuntu-latest
+#     container:
+#       image: mcr.microsoft.com/playwright/python:v1.47.0-noble
+#       options: --user 1001
 #     # Add repository secrets to the workflow as environment variables
 #     env:
 #       API_KEY: ${{ secrets.API_KEY }}
