@@ -12,3 +12,4 @@ services:
       - OCTOPUS_PASSWORD=<your_password>
       - EXECUTION_TIME=23:00
       - DISCORD_WEBHOOK=<your_webhook_url>
+      - ONE_OFF=false

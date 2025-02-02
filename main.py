@@ -16,13 +16,6 @@ opposite_tariff = {
     "GO": "AGILE"
 }
 
-account_number = os.getenv("ACCOUNT_NUMBER")
-api_token = os.getenv("API_TOKEN")
-octopus_email = os.getenv("OCTOPUS_EMAIL")
-octopus_password = os.getenv("OCTOPUS_PASSWORD")
-
-discord_webhook = os.getenv("DISCORD_WEBHOOK")
-
 token_query = """mutation {{
 	obtainKrakenToken(input: {{ APIKey: "{api_key}" }}) {{
 	    token
@@ -107,16 +100,16 @@ enrolment_query = """query {{
 
 def send_discord_message(content):
     print(content)
-    if config.DISCORD_WEBHOOK != "":
+    if config.DISCORD_WEBHOOK is not None:
         content = f"`{content}`"
         data = {
             "content": content
         }
-        requests.post(discord_webhook, json=data)
+        requests.post(config.DISCORD_WEBHOOK, json=data)
 
 
 def accept_new_agreement():
-    query = gql(enrolment_query.format(acc_number=account_number))
+    query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     try:
         enrolment_id = next(entry['id'] for entry in result['productEnrolments'] if entry['status'] == "IN_PROGRESS")
@@ -134,12 +127,12 @@ def accept_new_agreement():
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    query = gql(accept_terms_query.format(account_number=account_number, enrolment_id=enrolment_id))
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id))
     result = gql_client.execute(query)
 
 
 def get_acc_info():
-    query = gql(account_query.format(acc_number=account_number))
+    query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
 
     tariff_code = next(agreement['tariff']['tariffCode']
@@ -224,15 +217,19 @@ def calculate_potential_costs(consumption_data, rate_data):
 def get_token():
     transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/")
     client = Client(transport=transport, fetch_schema_from_transport=True)
-    query = gql(token_query.format(api_key=api_token))
+    query = gql(token_query.format(api_key=config.API_KEY))
     result = client.execute(query)
     return result['obtainKrakenToken']['token']
 
 
 def switch_tariff(target_tariff):
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True)
+        browser = None
+        try:
+            browser = playwright.chromium.launch(
+                headless=True)
+        except Exception as e:
+            print(e)  # Should print out if its not working
         context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
         page.goto("https://octopus.energy/")
@@ -242,16 +239,16 @@ def switch_tariff(target_tariff):
         page.get_by_placeholder("Email address").click()
         page.wait_for_timeout(1000)
         # replace w env
-        page.get_by_placeholder("Email address").fill(octopus_email)
+        page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Email address").press("Tab")
         page.wait_for_timeout(1000)
-        page.get_by_placeholder("Password").fill(octopus_password)
+        page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Password").press("Enter")
         page.wait_for_timeout(1000)
         # replace with env
-        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={account_number}")
+        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
         page.wait_for_timeout(10000)
         page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
         page.wait_for_timeout(10000)
@@ -261,7 +258,7 @@ def switch_tariff(target_tariff):
 
 
 def verify_new_agreement():
-    query = gql(account_query.format(acc_number=account_number))
+    query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     today = datetime.now().date()
     valid_from = next(datetime.fromisoformat(agreement['validFrom']).date()

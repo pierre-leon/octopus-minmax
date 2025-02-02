@@ -15,6 +15,7 @@ I personally have this running automatically every day at 11 PM inside a Raspber
 ### Requirements
 - An Octopus Energy Account  
   - In case you don't have one, we both get £50 for using my referral: https://share.octopus.energy/coral-lake-50
+  - Get your API key [here](https://octopus.energy/dashboard/new/accounts/personal-details/api-access)
 - A smart meter
 - Be on Octopus Agile or Octopus Go (More options can be added in the future)
 - An Octopus Home Mini for real-time usage (**Important**)
@@ -29,23 +30,25 @@ Docker run command:
 ```
 docker run -d \
   --name MinMaxOctopusBot \
-  -e ACCOUNT_NUMBER="<your_account_number>" \
-  -e API_TOKEN="<your_api_token>" \
-  -e OCTOPUS_EMAIL="<your_email>" \
-  -e OCTOPUS_PASSWORD="<your_password>" \
+  -e ACC_NUMBER="<your_account_number>" \
+  -e API_KEY="<your_api_key>" \
+  -e OCTOPUS_LOGIN_EMAIL="<your_email>" \
+  -e OCTOPUS_LOGIN_PASSWD="<your_password>" \
   -e EXECUTION_TIME="23:00" \
   -e DISCORD_WEBHOOK="<your_webhook_url>" \
+  -e ONE_OFF=false \
   eelmafia/octopus-minmax-bot
 ```
 
 or use the docker-compose.yaml **Don't forget to add your environment variables**
 
 #### Environment Variables
-| Variable          | Description |
-|------------------|-------------|
-| `ACCOUNT_NUMBER` | Your Octopus Energy account number. |
-| `API_TOKEN` | API token for accessing your Octopus Energy account. |
-| `OCTOPUS_EMAIL` | The email associated with your Octopus Energy account. |
-| `OCTOPUS_PASSWORD` | The password for your Octopus Energy account. |
-| `EXECUTION_TIME` | The time (HH:MM) when the script should execute. Default is `23:00` (11 PM). |
-| `DISCORD_WEBHOOK` | (Optional) A Discord webhook URL for sending logs and updates. |
+| Variable               | Description                                                                                       |
+|------------------------|---------------------------------------------------------------------------------------------------|
+| `ACC_NUMBER`           | Your Octopus Energy account number.                                                               |
+| `API_KEY`              | API token for accessing your Octopus Energy account.                                              |
+| `OCTOPUS_LOGIN_EMAIL`  | The email associated with your Octopus Energy account.                                            |
+| `OCTOPUS_LOGIN_PASSWD` | The password for your Octopus Energy account.                                                     |
+| `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).           |
+| `DISCORD_WEBHOOK`      | (Optional) A Discord webhook URL for sending logs and updates.                                    |
+| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling |
