@@ -106,7 +106,8 @@ enrolment_query = """query {{
 
 
 def send_discord_message(content):
-    if discord_webhook is not None:
+    print(content)
+    if config.DISCORD_WEBHOOK != "":
         content = f"`{content}`"
         data = {
             "content": content
