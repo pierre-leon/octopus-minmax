@@ -278,7 +278,7 @@ def setup_gql(token):
 
 
 def compare_and_switch():
-    send_discord_message("Octobot on. Starting comparison of today's costs...")
+    send_discord_message("Octobot on. You are currently on " + current_tariff + ". Starting comparison of today's costs...")
     (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
 
@@ -304,7 +304,7 @@ def compare_and_switch():
         else:
             send_discord_message("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today." + summary)
+        send_discord_message("Not switching today.You are currently on " + current_tariff + ". " + summary)
 
 
 def run_tariff_compare():
