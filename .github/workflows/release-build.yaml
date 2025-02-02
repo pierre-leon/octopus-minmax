@@ -29,7 +29,6 @@ jobs:
       - name: Set Docker image variables
         run: |
           echo "DOCKER_IMAGE=${{ vars.DOCKER_IMAGE }}" >> $GITHUB_ENV
-          echo "DOCKER_TAG_PREFIX=${{ vars.DOCKER_TAG_PREFIX || 'latest' }}" >> $GITHUB_ENV
 
       # Build and Push Docker Image
       - name: Build and push Docker image
