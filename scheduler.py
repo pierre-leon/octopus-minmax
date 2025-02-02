@@ -7,12 +7,12 @@ from main import run_tariff_compare
 # Track last execution date to ensure we only run once per day
 last_execution_date = None
 
-print(f"Welcome to Octopus MinMax Bot. I will run your comparisons at {config.EXECUTION_TIME}")
-
 if config.ONE_OFF_RUN:
-    print("Executing one off comparison.")
+    print(f"Welcome to Octopus MinMax Bot. Executing a one off comparison.")
     run_tariff_compare()
 else:
+    print(f"Welcome to Octopus MinMax Bot. I will run your comparisons at {config.EXECUTION_TIME}")
+
     while True:
         now = datetime.now()
         current_time = now.strftime("%H:%M")
