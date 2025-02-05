@@ -304,7 +304,7 @@ def compare_and_switch():
         else:
             send_discord_message("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today.You are currently on " + current_tariff + ". " + summary)
+        send_discord_message("Not switching today" + summary)
 
 
 def run_tariff_compare():
