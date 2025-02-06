@@ -37,6 +37,7 @@ docker run -d \
   -e EXECUTION_TIME="23:00" \
   -e DISCORD_WEBHOOK="<your_webhook_url>" \
   -e ONE_OFF=false \
+  -e PYTHONUNBUFFERED=1 \
   --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
