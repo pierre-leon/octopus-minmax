@@ -278,7 +278,7 @@ def setup_gql(token):
 
 
 def compare_and_switch():
-    send_discord_message("Octobot on. You are currently on " + current_tariff + ". Starting comparison of today's costs...")
+    send_discord_message("Octobot on. Starting comparison of today's costs...")
     (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
 
@@ -287,8 +287,8 @@ def compare_and_switch():
     potential_costs = calculate_potential_costs(consumption, potential_unit_rates)
 
     total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
-    summary = "Total potential cost: £{:.2f} vs current cost: £{:.2f}".format(total_potential_calculated / 100,
-                                                                              total_curr_cost / 100)
+    summary = "Total potential cost on {}: £{:.2f} vs your current cost on {}: £{:.2f}"
+    summary = summary.format(opposite_tariff[curr_tariff], total_potential_calculated / 100, curr_tariff, total_curr_cost / 100)
     # 2p buffer because cba
     if (total_potential_calculated + 2) < total_curr_cost:
         send_discord_message(summary + "\nInitiating Switch to " + opposite_tariff[curr_tariff])
@@ -304,7 +304,7 @@ def compare_and_switch():
         else:
             send_discord_message("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today." + summary)
+        send_discord_message("Not switching today. " + summary)
 
 
 def run_tariff_compare():
