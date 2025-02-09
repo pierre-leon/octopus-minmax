@@ -157,7 +157,7 @@ def get_acc_info():
 
     # Get consumption for today
     result = gql_client.execute(
-        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:30:00Z",
+        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:00:00Z",
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
@@ -199,7 +199,7 @@ def calculate_potential_costs(consumption_data, rate_data):
         read_time = consumption['readAt'].replace('+00:00', 'Z')
         matching_rate = next(
             rate for rate in rate_data
-            if rate['valid_from'] < read_time <= rate['valid_to']
+            if rate['valid_from'] <= read_time <= rate['valid_to']
         )
 
         consumption_kwh = float(consumption['consumptionDelta']) / 1000
