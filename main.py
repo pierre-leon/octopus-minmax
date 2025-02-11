@@ -157,7 +157,7 @@ def get_acc_info():
 
     # Get consumption for today
     result = gql_client.execute(
-        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:30:00Z",
+        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:00:00Z",
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
@@ -199,7 +199,7 @@ def calculate_potential_costs(consumption_data, rate_data):
         read_time = consumption['readAt'].replace('+00:00', 'Z')
         matching_rate = next(
             rate for rate in rate_data
-            if rate['valid_from'] < read_time <= rate['valid_to']
+            if rate['valid_from'] <= read_time <= rate['valid_to']
         )
 
         consumption_kwh = float(consumption['consumptionDelta']) / 1000
@@ -287,8 +287,8 @@ def compare_and_switch():
     potential_costs = calculate_potential_costs(consumption, potential_unit_rates)
 
     total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
-    summary = "Total potential cost: £{:.2f} vs current cost: £{:.2f}".format(total_potential_calculated / 100,
-                                                                              total_curr_cost / 100)
+    summary = "Total potential cost on {}: £{:.2f} vs your current cost on {}: £{:.2f}"
+    summary = summary.format(opposite_tariff[curr_tariff], total_potential_calculated / 100, curr_tariff, total_curr_cost / 100)
     # 2p buffer because cba
     if (total_potential_calculated + 2) < total_curr_cost:
         send_discord_message(summary + "\nInitiating Switch to " + opposite_tariff[curr_tariff])
@@ -304,7 +304,7 @@ def compare_and_switch():
         else:
             send_discord_message("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today." + summary)
+        send_discord_message("Not switching today. " + summary)
 
 
 def run_tariff_compare():
