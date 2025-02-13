@@ -278,7 +278,10 @@ def setup_gql(token):
 
 
 def compare_and_switch():
-    send_discord_message("Octobot on. Starting comparison of today's costs...")
+    welcome_message = "DRY RUN: " if config.DRY_RUN else ""
+    welcome_message += "Octobot on. Starting comparison of today's costs..."
+    send_discord_message(welcome_message)
+
     (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
 
@@ -291,7 +294,14 @@ def compare_and_switch():
     summary = summary.format(opposite_tariff[curr_tariff], total_potential_calculated / 100, curr_tariff, total_curr_cost / 100)
     # 2p buffer because cba
     if (total_potential_calculated + 2) < total_curr_cost:
-        send_discord_message(summary + "\nInitiating Switch to " + opposite_tariff[curr_tariff])
+        switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary, new_tariff=opposite_tariff[curr_tariff])
+        send_discord_message(switch_message)
+
+        if config.DRY_RUN:
+            dry_run_message ="DRY RUN: Not going through with switch today."
+            send_discord_message(dry_run_message)
+            return None
+        
         switch_tariff(opposite_tariff[curr_tariff])
         send_discord_message("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
