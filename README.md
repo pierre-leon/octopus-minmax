@@ -42,8 +42,9 @@ docker run -d \
   --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
-
 or use the docker-compose.yaml **Don't forget to add your environment variables**
+
+Note : Remove the --restart unless line if you set the ONE_OFF variable or it will continuously run.
 
 #### Environment Variables
 | Variable               | Description                                                                                       |
@@ -54,4 +55,5 @@ or use the docker-compose.yaml **Don't forget to add your environment variables*
 | `OCTOPUS_LOGIN_PASSWD` | The password for your Octopus Energy account.                                                     |
 | `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).           |
 | `DISCORD_WEBHOOK`      | (Optional) A Discord webhook URL for sending logs and updates.                                    |
-| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling |
+| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.|
+| `DRY_RUN`              | (optional) A flag to compare but not switch tariffs.                                              | 
