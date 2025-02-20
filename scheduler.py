@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-
+import random
 import config
 from main import run_tariff_compare
 
@@ -21,6 +21,7 @@ else:
         if current_time == config.EXECUTION_TIME and last_execution_date != current_date:
             print(f"Executing tariff comparison at {current_time}...")
             last_execution_date = current_date
+            time.sleep(random.randint(10,600)) #10 Sec - 10 Min Random Delay to prevent all users attempting to access API at same time
             run_tariff_compare()
 
         time.sleep(30)  # Check time every 30 seconds

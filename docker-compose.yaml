@@ -13,3 +13,5 @@ services:
       - EXECUTION_TIME=23:00
       - DISCORD_WEBHOOK=<your_webhook_url>
       - ONE_OFF=false
+      - DRY_RUN=false
+      - PYTHONUNBUFFERED=1
