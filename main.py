@@ -1,12 +1,13 @@
-import os
-
-from playwright.sync_api import sync_playwright
-import requests
-from datetime import datetime, date
-from gql import gql, Client
-from gql.transport.aiohttp import AIOHTTPTransport
 import time
 import traceback
+from datetime import date, datetime
+
+import requests
+from apprise import Apprise
+from gql import Client, gql
+from gql.transport.aiohttp import AIOHTTPTransport
+from playwright.sync_api import sync_playwright
+
 import config
 
 gql_transport = None
@@ -98,14 +99,25 @@ enrolment_query = """query {{
 }}"""
 
 
-def send_discord_message(content):
-    print(content)
-    if config.DISCORD_WEBHOOK is not None:
-        content = f"`{content}`"
-        data = {
-            "content": content
-        }
-        requests.post(config.DISCORD_WEBHOOK, json=data)
+def send_notification(message, title="Octobot"):
+    """Sends a notification using Apprise.
+
+    Args:
+        message (str): The message to send.
+        title (str, optional): The title of the notification. Defaults to "Octobot".
+    """
+
+    apobj = Apprise()
+
+    if config.NOTIFICATION_URLS:
+        for url in config.NOTIFICATION_URLS.split(','):
+            apobj.add(url.strip())
+
+    if not apobj:
+        print("No notification services configured. Check config.NOTIFICATION_URLS.")
+        return
+
+    apobj.notify(body=message, title=title)
 
 
 def accept_new_agreement():
@@ -123,7 +135,7 @@ def accept_new_agreement():
                     last_step_date = datetime.fromisoformat(
                         stage['steps'][-1]['updatedAt'].replace('Z', '+00:00')).date()
                     if last_step_date == today and stage['status'] == 'COMPLETED':
-                        send_discord_message("Post-enrolment automatically completed with today's date.")
+                        send_notification("Post-enrolment automatically completed with today's date.")
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
@@ -172,7 +184,7 @@ def get_potential_tariff_rates(tariff, region_code):
         and product['direction'] == "IMPORT"
         and product['brand'] == "OCTOPUS_ENERGY"
     )
-    # Residential tariffs are always E-1R (i think, lol)    
+    # Residential tariffs are always E-1R (i think, lol)
     product_code = f"E-1R-{tariff_code}-{region_code}"
 
     today = date.today()
@@ -280,7 +292,7 @@ def setup_gql(token):
 def compare_and_switch():
     welcome_message = "DRY RUN: " if config.DRY_RUN else ""
     welcome_message += "Octobot on. Starting comparison of today's costs..."
-    send_discord_message(welcome_message)
+    send_notification(welcome_message)
 
     (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
@@ -295,26 +307,26 @@ def compare_and_switch():
     # 2p buffer because cba
     if (total_potential_calculated + 2) < total_curr_cost:
         switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary, new_tariff=opposite_tariff[curr_tariff])
-        send_discord_message(switch_message)
+        send_notification(switch_message)
 
         if config.DRY_RUN:
             dry_run_message ="DRY RUN: Not going through with switch today."
-            send_discord_message(dry_run_message)
+            send_notification(dry_run_message)
             return None
-        
+
         switch_tariff(opposite_tariff[curr_tariff])
-        send_discord_message("Tariff switch requested successfully.")
+        send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
         accept_new_agreement()
-        send_discord_message("Accepted agreement. Switch successful.")
+        send_notification("Accepted agreement. Switch successful.")
 
         if verify_new_agreement():
-            send_discord_message("Verified new agreement successfully. Process finished.")
+            send_notification("Verified new agreement successfully. Process finished.")
         else:
-            send_discord_message("Unable to accept new agreement. Please check your emails.")
+            send_notification("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today. " + summary)
+        send_notification("Not switching today." + summary)
 
 
 def run_tariff_compare():
@@ -325,4 +337,4 @@ def run_tariff_compare():
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
-        send_discord_message(traceback.format_exc())
+        send_notification(traceback.format_exc())
