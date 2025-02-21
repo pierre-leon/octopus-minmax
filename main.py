@@ -8,94 +8,15 @@ from gql.transport.aiohttp import AIOHTTPTransport
 import time
 import traceback
 import config
+import tariff
+from account_info import AccountInfo
+from queries import *
+from tariff import Tariff
 
 gql_transport = None
 gql_client = None
-opposite_tariff = {
-    "AGILE": "GO",
-    "GO": "AGILE"
-}
 
-token_query = """mutation {{
-	obtainKrakenToken(input: {{ APIKey: "{api_key}" }}) {{
-	    token
-	}}
-}}"""
-
-# I have no idea if versionMajor or versionMinor has an impact???
-accept_terms_query = """mutation {{
-    acceptTermsAndConditions(input: {{
-        accountNumber: "{account_number}",
-        enrolmentId: "{enrolment_id}",
-        termsVersion: {{
-            versionMajor: 1,
-            versionMinor: 1
-        }}
-    }}) 
-    {{
-    acceptedVersion
-  }}
-}}"""
-
-consumption_query = """query {{
-    smartMeterTelemetry(
-        deviceId: "{device_id}"
-        grouping: HALF_HOURLY
-        start: "{start_date}"
-        end: "{end_date}"
-    ) {{
-    readAt
-    consumptionDelta
-    costDeltaWithTax
-  }}
-}}"""
-
-account_query = """query{{
-    account(
-        accountNumber: "{acc_number}"
-    ) {{
-    electricityAgreements(active: true) {{
-        validFrom
-        validTo
-        meterPoint {{
-            meters(includeInactive: false) {{
-                smartDevices {{
-                    deviceId
-                }}
-            }}
-            mpan
-        }}
-        tariff {{
-            ... on HalfHourlyTariff {{
-                id
-                productCode
-                tariffCode
-                productCode
-                standingCharge
-                }}
-            }}
-        }}
-    }}
-}}"""
-enrolment_query = """query {{
-    productEnrolments(accountNumber: "{acc_number}") {{
-        id
-        status
-        product {{
-            code
-            displayName
-        }}
-    stages {{
-      name
-      status
-      steps {{
-        displayName
-        status
-        updatedAt
-      }}
-    }}
-  }}
-}}"""
+tariffs = []
 
 
 def send_discord_message(content):
@@ -131,7 +52,7 @@ def accept_new_agreement():
     result = gql_client.execute(query)
 
 
-def get_acc_info():
+def get_acc_info() -> AccountInfo:
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
 
@@ -148,12 +69,9 @@ def get_acc_info():
                             for agreement in result['account']['electricityAgreements']
                             if 'standingCharge' in agreement['tariff'])
 
-    if "GO" in tariff_code:
-        current_tariff = "GO"
-    elif "AGILE" in tariff_code:
-        current_tariff = "AGILE"
-    else:
-        raise Exception(f"ERROR: Unknown tariff code: {tariff_code}")
+    matching_tariff = next((tariff for tariff in tariffs if tariff.matches(tariff_code)), None)
+    if matching_tariff is None:
+        raise Exception(f"ERROR: Found no matching tariff for code {tariff_code}")
 
     # Get consumption for today
     result = gql_client.execute(
@@ -161,14 +79,14 @@ def get_acc_info():
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
-    return current_tariff, curr_stdn_charge, region_code, consumption
+    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption)
 
 
 def get_potential_tariff_rates(tariff, region_code):
     all_products = rest_query(f"{config.BASE_URL}/products")
     tariff_code = next(
         product["code"] for product in all_products['results']
-        if product['display_name'] == ("Agile Octopus" if tariff == "AGILE" else "Octopus Go")
+        if product['display_name'] == tariff
         and product['direction'] == "IMPORT"
         and product['brand'] == "OCTOPUS_ENERGY"
     )
@@ -282,27 +200,57 @@ def compare_and_switch():
     welcome_message += "Octobot on. Starting comparison of today's costs..."
     send_discord_message(welcome_message)
 
-    (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
-    total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
+    costs = {}
 
-    (potential_std_charge, potential_unit_rates) = get_potential_tariff_rates(opposite_tariff[curr_tariff], region_code)
+    account_info = get_acc_info()
+    current_tariff = account_info.current_tariff
 
-    potential_costs = calculate_potential_costs(consumption, potential_unit_rates)
+    total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in account_info.consumption) \
+                      + account_info.standing_charge
 
-    total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
-    summary = "Total potential cost on {}: £{:.2f} vs your current cost on {}: £{:.2f}"
-    summary = summary.format(opposite_tariff[curr_tariff], total_potential_calculated / 100, curr_tariff, total_curr_cost / 100)
+    costs[current_tariff] = total_curr_cost
+
+    for tariff in tariffs:
+        if tariff == current_tariff:
+            continue  # Skip if you're already on that tariff
+
+        (potential_std_charge, potential_unit_rates) = \
+            get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
+        potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
+        total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
+
+        costs[tariff.id] = total_potential_calculated
+
+    summary = f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f}\n"
+    for tariff in costs.keys():
+        cost = costs[tariff]
+        summary += f"Potential cost on {tariff}: £{cost / 100:.2f}\n"
+
+    ##TODO: Filter out not switchable tariffs
+
+    # Find the cheapest tariffs that is in the list and switchable
+    curr_cost = costs.get(current_tariff, float('inf'))
+    cheapest_tariff = min(costs, key=costs.get)
+    cheapest_cost = costs[cheapest_tariff]
+
+    if cheapest_tariff == current_tariff:
+        send_discord_message(f"You are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
+        return
+
+    savings = curr_cost - cheapest_cost
+
     # 2p buffer because cba
-    if (total_potential_calculated + 2) < total_curr_cost:
-        switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary, new_tariff=opposite_tariff[curr_tariff])
+    if savings < 2:
+        switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary,
+                                                                               new_tariff=cheapest_tariff.display_name)
         send_discord_message(switch_message)
 
         if config.DRY_RUN:
-            dry_run_message ="DRY RUN: Not going through with switch today."
+            dry_run_message = "DRY RUN: Not going through with switch today."
             send_discord_message(dry_run_message)
             return None
-        
-        switch_tariff(opposite_tariff[curr_tariff])
+
+        switch_tariff(cheapest_tariff.url_tariff_name)
         send_discord_message("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
@@ -317,12 +265,36 @@ def compare_and_switch():
         send_discord_message("Not switching today. " + summary)
 
 
+def load_tariffs_from_ids(tariff_ids: str):
+    # Convert the input string into a set of lowercase tariff IDs
+    requested_ids = set(tariff_ids.lower().split(","))
+
+    # Get all predefined tariffs from the Tariffs class
+    all_tariffs = tariff.TARIFFS
+
+    # Match requested tariffs to predefined ones
+    matched_tariffs = []
+    for tariff_id in requested_ids:
+        matched = next((tariff for t in all_tariffs if t.id == tariff_id), None)
+
+        if matched is not None:
+            matched_tariffs.append(matched)
+        else:
+            send_discord_message(f"Warning: No tariff found for ID '{tariff_id}'")
+
+    return matched_tariffs
+
+
 def run_tariff_compare():
     try:
         setup_gql(get_token())
+        load_tariffs_from_ids(config.TARIFFS)
         if gql_transport is not None and gql_client is not None:
             compare_and_switch()
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_discord_message(traceback.format_exc())
+
+
+load_tariffs_from_ids(config.TARIFFS)

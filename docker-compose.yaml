@@ -15,3 +15,4 @@ services:
       - ONE_OFF=false
       - DRY_RUN=false
       - PYTHONUNBUFFERED=1
+      - TARIFFS=go,agile,standard
