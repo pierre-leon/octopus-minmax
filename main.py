@@ -318,3 +318,4 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_discord_message(traceback.format_exc())
+        

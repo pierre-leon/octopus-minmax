@@ -39,7 +39,7 @@ docker run -d \
   -e ONE_OFF=false \
   -e DRY_RUN=false \
   -e PYTHONUNBUFFERED=1 \
-  -e TARIFFS=go,agile,standard \
+  -e TARIFFS=go,agile,flexible \
   --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
@@ -54,7 +54,7 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `API_KEY`              | API token for accessing your Octopus Energy account.                                               |
 | `OCTOPUS_LOGIN_EMAIL`  | The email associated with your Octopus Energy account.                                             |
 | `OCTOPUS_LOGIN_PASSWD` | The password for your Octopus Energy account.                                                      |
-| `TARIFFS`              | A list of tariffs to compare against.                                                              | 
+| `TARIFFS`              | A list of tariffs to compare against. Default is go,agile,flexible                                 | 
 | `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).            |
 | `DISCORD_WEBHOOK`      | (Optional) A Discord webhook URL for sending logs and updates.                                     |
 | `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling. |
