@@ -9,7 +9,7 @@ class Tariff:
         self.url_tariff_name = url_tariff_name  # The tariff name formatted for use in URLs.
         self.switchable = switchable  # Whether this tariff can be switched to or not
 
-    def matches(self, current_tariff_name: str) -> bool:
+    def is_tariff(self, current_tariff_name: str) -> bool:
         """Check if the given tariff name matches the tariff code matcher."""
         return self.tariff_code_matcher.lower() in current_tariff_name.lower()
 
@@ -19,9 +19,16 @@ class Tariff:
             return self.id == other.id
         return False
 
+    def __hash__(self):
+        return hash(self.id)
+
+    def __str__(self):
+        return f"Tariff(id={self.id}, display_name={self.display_name}, api_display_name={self.api_display_name}, tariff_code_matcher={self.tariff_code_matcher}, url_tariff_name={self.url_tariff_name}, switchable={self.switchable})"
+
 
 TARIFFS = [
     Tariff("go", "Octopus Go", "Octopus Go", "go", "go", True), # Octopus Go
     Tariff("agile", "Octopus Agile", "Agile Octopus", "agile", "agile", True), # Octopus Agile
-    Tariff("cosy", "Octopus Cosy", "Octopus Cosy", "cosy-octopus", "cosy", True), # Octopus Cosy
+    Tariff("cosy", "Octopus Cosy", "Cosy Octopus", "cosy", "cosy-octopus", True), # Octopus Cosy
+    Tariff("flexible", "Flexible Octopus", "Flexible Octopus", "var", "", False) # Flexible Octopus
 ]

@@ -8,10 +8,9 @@ from gql.transport.aiohttp import AIOHTTPTransport
 import time
 import traceback
 import config
-import tariff
 from account_info import AccountInfo
 from queries import *
-from tariff import Tariff
+from tariff import TARIFFS
 
 gql_transport = None
 gql_client = None
@@ -69,9 +68,9 @@ def get_acc_info() -> AccountInfo:
                             for agreement in result['account']['electricityAgreements']
                             if 'standingCharge' in agreement['tariff'])
 
-    matching_tariff = next((tariff for tariff in tariffs if tariff.matches(tariff_code)), None)
+    matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
     if matching_tariff is None:
-        raise Exception(f"ERROR: Found no matching tariff for code {tariff_code}")
+        raise Exception(f"ERROR: Found no supported tariff for {tariff_code}")
 
     # Get consumption for today
     result = gql_client.execute(
@@ -84,12 +83,16 @@ def get_acc_info() -> AccountInfo:
 
 def get_potential_tariff_rates(tariff, region_code):
     all_products = rest_query(f"{config.BASE_URL}/products")
-    tariff_code = next(
+    tariff_code = next((
         product["code"] for product in all_products['results']
         if product['display_name'] == tariff
         and product['direction'] == "IMPORT"
         and product['brand'] == "OCTOPUS_ENERGY"
-    )
+    ), None)
+
+    if tariff_code is None:
+        raise Exception(f"No matching tariff found for {tariff}")
+
     # Residential tariffs are always E-1R (i think, lol)    
     product_code = f"E-1R-{tariff_code}-{region_code}"
 
@@ -117,7 +120,10 @@ def calculate_potential_costs(consumption_data, rate_data):
         read_time = consumption['readAt'].replace('+00:00', 'Z')
         matching_rate = next(
             rate for rate in rate_data
-            if rate['valid_from'] <= read_time <= rate['valid_to']
+            # Flexible has no end time, so default to the end of time
+            if rate['valid_from'] <= read_time <= (rate.get('valid_to') or "9999-12-31T23:59:59Z")
+            # DIRECT_DEBIT is for flexible that has different price for direct debit or not
+            and rate['payment_method'] in [None, "DIRECT_DEBIT"]
         )
 
         consumption_kwh = float(consumption['consumptionDelta']) / 1000
@@ -200,47 +206,62 @@ def compare_and_switch():
     welcome_message += "Octobot on. Starting comparison of today's costs..."
     send_discord_message(welcome_message)
 
-    costs = {}
-
     account_info = get_acc_info()
     current_tariff = account_info.current_tariff
 
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in account_info.consumption) \
                       + account_info.standing_charge
 
+    # Track costs key: Tariff, value: cost in pence
+    costs = {}
+    # Add current tariff
     costs[current_tariff] = total_curr_cost
 
     for tariff in tariffs:
         if tariff == current_tariff:
             continue  # Skip if you're already on that tariff
 
-        (potential_std_charge, potential_unit_rates) = \
-            get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
-        potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
-        total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
+        try:
+            (potential_std_charge, potential_unit_rates) = \
+                get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
+            potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
+            total_potential_calculated = sum(
+                period['calculated_cost'] for period in potential_costs) + potential_std_charge
 
-        costs[tariff.id] = total_potential_calculated
+            costs[tariff] = total_potential_calculated
+        except Exception as e:
+            print(f"Error finding prices for tariff: {tariff.id}. {e}")
+            costs[tariff] = None
 
     summary = f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f}\n"
     for tariff in costs.keys():
         cost = costs[tariff]
-        summary += f"Potential cost on {tariff}: £{cost / 100:.2f}\n"
 
-    ##TODO: Filter out not switchable tariffs
+        if tariff == current_tariff:
+            continue
+
+        if cost is not None:
+            summary += f"Potential cost on {tariff.display_name}: £{cost / 100:.2f}\n"
+        else:
+            summary += f"No cost for {tariff.display_name}\n"
+
+    # Filter the dictionary to only include tariffs where the `switchable` attribute is True
+    switchable_tariffs = {t: cost for t, cost in costs.items() if t.switchable and cost is not None}
 
     # Find the cheapest tariffs that is in the list and switchable
     curr_cost = costs.get(current_tariff, float('inf'))
-    cheapest_tariff = min(costs, key=costs.get)
+    cheapest_tariff = min(switchable_tariffs, key=switchable_tariffs.get)
     cheapest_cost = costs[cheapest_tariff]
 
     if cheapest_tariff == current_tariff:
-        send_discord_message(f"You are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
+        send_discord_message(
+            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
         return
 
     savings = curr_cost - cheapest_cost
 
     # 2p buffer because cba
-    if savings < 2:
+    if savings > 2:
         switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary,
                                                                                new_tariff=cheapest_tariff.display_name)
         send_discord_message(switch_message)
@@ -262,27 +283,29 @@ def compare_and_switch():
         else:
             send_discord_message("Unable to accept new agreement. Please check your emails.")
     else:
-        send_discord_message("Not switching today. " + summary)
+        send_discord_message(f"{summary}\nNot switching today.")
 
 
 def load_tariffs_from_ids(tariff_ids: str):
+    global tariffs
+
     # Convert the input string into a set of lowercase tariff IDs
     requested_ids = set(tariff_ids.lower().split(","))
 
     # Get all predefined tariffs from the Tariffs class
-    all_tariffs = tariff.TARIFFS
+    all_tariffs = TARIFFS
 
     # Match requested tariffs to predefined ones
     matched_tariffs = []
     for tariff_id in requested_ids:
-        matched = next((tariff for t in all_tariffs if t.id == tariff_id), None)
+        matched = next((t for t in all_tariffs if t.id == tariff_id), None)
 
         if matched is not None:
             matched_tariffs.append(matched)
         else:
             send_discord_message(f"Warning: No tariff found for ID '{tariff_id}'")
 
-    return matched_tariffs
+    tariffs = matched_tariffs
 
 
 def run_tariff_compare():
@@ -295,6 +318,3 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_discord_message(traceback.format_exc())
-
-
-load_tariffs_from_ids(config.TARIFFS)
