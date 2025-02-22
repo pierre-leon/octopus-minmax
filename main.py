@@ -212,6 +212,11 @@ def compare_and_switch():
     total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in account_info.consumption) \
                       + account_info.standing_charge
 
+    total_wh = sum(float(consumption['consumptionDelta']) for consumption in account_info.consumption)
+    total_kwh = total_wh / 1000  # Convert watt-hours to kilowatt-hours
+
+    summary = f"Total Consumption today: {total_kwh:.4f} kWh\n"
+
     # Track costs key: Tariff, value: cost in pence
     costs = {}
     # Add current tariff
@@ -233,7 +238,7 @@ def compare_and_switch():
             print(f"Error finding prices for tariff: {tariff.id}. {e}")
             costs[tariff] = None
 
-    summary = f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f}\n"
+    summary += f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f}\n"
     for tariff in costs.keys():
         cost = costs[tariff]
 
@@ -318,4 +323,6 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_discord_message(traceback.format_exc())
-        
+
+
+run_tariff_compare()
