@@ -232,19 +232,25 @@ def compare_and_switch():
     account_info = get_acc_info()
     current_tariff = account_info.current_tariff
 
-    total_curr_cost = sum(float(entry['costDeltaWithTax'] or 0) for entry in account_info.consumption) \
-                      + account_info.standing_charge
+    # Total consumption cost
+    total_con_cost = sum(float(entry['costDeltaWithTax'] or 0) for entry in account_info.consumption)
+    total_curr_cost = total_con_cost + account_info.standing_charge
 
+    # Total consumption
     total_wh = sum(float(consumption['consumptionDelta']) for consumption in account_info.consumption)
     total_kwh = total_wh / 1000  # Convert watt-hours to kilowatt-hours
 
     summary = f"Total Consumption today: {total_kwh:.4f} kWh\n"
+    summary += f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f} " \
+               f"(£{total_con_cost / 100:.2f} con + " \
+               f"£{account_info.standing_charge / 100:.2f} s/c)\n"
 
     # Track costs key: Tariff, value: cost in pence
     costs = {}
     # Add current tariff
     costs[current_tariff] = total_curr_cost
 
+    # Calculate costs of other tariffs
     for tariff in tariffs:
         if tariff == current_tariff:
             continue  # Skip if you're already on that tariff
@@ -253,25 +259,19 @@ def compare_and_switch():
             (potential_std_charge, potential_unit_rates) = \
                 get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
             potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
-            total_potential_calculated = sum(
-                period['calculated_cost'] for period in potential_costs) + potential_std_charge
 
-            costs[tariff] = total_potential_calculated
+            total_tariff_consumption_cost = sum(period['calculated_cost'] for period in potential_costs)
+            total_tariff_cost = total_tariff_consumption_cost + potential_std_charge
+
+            costs[tariff] = total_tariff_cost
+            summary += f"Potential cost on {tariff.display_name}: £{total_tariff_cost / 100:.2f} " \
+                       f"(£{total_tariff_consumption_cost / 100:.2f} con + " \
+                       f"£{potential_std_charge / 100:.2f} s/c)\n"
+
         except Exception as e:
             print(f"Error finding prices for tariff: {tariff.id}. {e}")
-            costs[tariff] = None
-
-    summary += f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f}\n"
-    for tariff in costs.keys():
-        cost = costs[tariff]
-
-        if tariff == current_tariff:
-            continue
-
-        if cost is not None:
-            summary += f"Potential cost on {tariff.display_name}: £{cost / 100:.2f}\n"
-        else:
             summary += f"No cost for {tariff.display_name}\n"
+            costs[tariff] = None
 
     # Filter the dictionary to only include tariffs where the `switchable` attribute is True
     switchable_tariffs = {t: cost for t, cost in costs.items() if t.switchable and cost is not None}
