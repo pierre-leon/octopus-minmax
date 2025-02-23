@@ -254,7 +254,7 @@ def switch_tariff(target_tariff):
         page = context.new_page()
         page.goto("https://octopus.energy/")
         page.wait_for_timeout(1000)
-	print("Octopus Energy website loaded")
+        print("Octopus Energy website loaded")
         page.get_by_label("Log in to my account").click()
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Email address").click()
@@ -268,11 +268,11 @@ def switch_tariff(target_tariff):
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Password").press("Enter")
         page.wait_for_timeout(1000)
-	print("Login details entered")
+        print("Login details entered")
         # replace with env
         page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
         page.wait_for_timeout(10000)
-	print("Tariff switch page loaded")
+        print("Tariff switch page loaded")
         page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
         page.wait_for_timeout(10000)
         # check if url has success
