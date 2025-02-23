@@ -28,7 +28,7 @@ class Tariff:
 
 TARIFFS = [
     Tariff("go", "Octopus Go", "Octopus Go", "go", "go", True), # Octopus Go
-    Tariff("agile", "Octopus Agile", "Agile Octopus", "agile", "agile", True), # Octopus Agile
-    Tariff("cosy", "Octopus Cosy", "Cosy Octopus", "cosy", "cosy-octopus", True), # Octopus Cosy
+    Tariff("agile", "Agile Octopus", "Agile Octopus", "agile", "agile", True), # Octopus Agile
+    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", "cosy", "cosy-octopus", True), # Octopus Cosy
     Tariff("flexible", "Flexible Octopus", "Flexible Octopus", "var", "", False) # Flexible Octopus
 ]
