@@ -106,8 +106,8 @@ def get_potential_tariff_rates(tariff, region_code):
     tariff_code = next((
         product["code"] for product in all_products['results']
         if product['display_name'] == tariff
-        and product['direction'] == "IMPORT"
-        and product['brand'] == "OCTOPUS_ENERGY"
+           and product['direction'] == "IMPORT"
+           and product['brand'] == "OCTOPUS_ENERGY"
     ), None)
 
     if tariff_code is None:
@@ -178,7 +178,7 @@ def switch_tariff(target_tariff):
         page = context.new_page()
         page.goto("https://octopus.energy/")
         page.wait_for_timeout(1000)
-	print("Octopus Energy website loaded")
+        print("Octopus Energy website loaded")
         page.get_by_label("Log in to my account").click()
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Email address").click()
@@ -192,11 +192,11 @@ def switch_tariff(target_tariff):
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Password").press("Enter")
         page.wait_for_timeout(1000)
-	print("Login details entered")
+        print("Login details entered")
         # replace with env
         page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
         page.wait_for_timeout(10000)
-	print("Tariff switch page loaded")
+        print("Tariff switch page loaded")
         page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
         page.wait_for_timeout(10000)
         # check if url has success
@@ -282,7 +282,7 @@ def compare_and_switch():
     cheapest_cost = costs[cheapest_tariff]
 
     if cheapest_tariff == current_tariff:
-        send_discord_message(
+        send_notification(
             f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
         return
 
@@ -291,10 +291,11 @@ def compare_and_switch():
     # 2p buffer because cba
     if savings > 2:
         switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary,
+                                                                               new_tariff=cheapest_tariff.display_name)
         send_notification(switch_message)
 
         if config.DRY_RUN:
-            dry_run_message ="DRY RUN: Not going through with switch today."
+            dry_run_message = "DRY RUN: Not going through with switch today."
             send_notification(dry_run_message)
             return None
 
@@ -310,8 +311,7 @@ def compare_and_switch():
         else:
             send_notification("Unable to accept new agreement. Please check your emails.")
     else:
-        send_notification("Not switching today." + summary)
-        send_discord_message(f"{summary}\nNot switching today.")
+        send_notification(f"{summary}\nNot switching today.")
 
 
 def load_tariffs_from_ids(tariff_ids: str):
@@ -331,7 +331,7 @@ def load_tariffs_from_ids(tariff_ids: str):
         if matched is not None:
             matched_tariffs.append(matched)
         else:
-            send_discord_message(f"Warning: No tariff found for ID '{tariff_id}'")
+            send_notification(f"Warning: No tariff found for ID '{tariff_id}'")
 
     tariffs = matched_tariffs
 
