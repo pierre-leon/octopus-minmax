@@ -187,11 +187,11 @@ def get_acc_info():
 def get_potential_tariff_rates(tariff_short_code, region_code):
     all_products = rest_query(f"{config.BASE_URL}/products/?brand=OCTOPUS_ENERGY&is_business=false")
 
-    # Gst the required tariff from the results
+    # Get the required tariff from the results
     tariff_result = next((
-        product for product in all_products['results']
-        if product['display_name'] == ("Agile Octopus" if tariff_short_code == "AGILE" else "Octopus Go")
-           and product['direction'] == "IMPORT"
+        product for product in all_products.get('results', [])
+        if product.get('display_name') == ("Agile Octopus" if tariff_short_code == "AGILE" else "Octopus Go")
+           and product.get('direction') == "IMPORT"
     ), None)
 
     if not tariff_result:
@@ -199,27 +199,29 @@ def get_potential_tariff_rates(tariff_short_code, region_code):
 
     # Use the self links to navigate to the tariff details
     tariff_self_link = next((
-        item['href'] for item in tariff_result['links']
-        if item['rel'].lower() == 'self'
+        item.get('href') for item in tariff_result.get('links', [])
+        if item.get('rel', '').lower() == 'self'
     ), None)
 
     if not tariff_self_link:
-        raise ValueError(f"Self link not found for tariff {tariff_result['code']}.")
+        raise ValueError(f"Self link not found for tariff {tariff_result.get('code', 'Unknown')}.")
 
     tariff_details = rest_query(tariff_self_link)
 
     # Access the standing charge including VAT
-    region_tariffs = tariff_details['single_register_electricity_tariffs']['_' + region_code]['direct_debit_monthly']
-    standing_charge_inc_vat = region_tariffs['standing_charge_inc_vat']
+    region_tariffs = tariff_details.get('single_register_electricity_tariffs', {}).get(f'_{region_code}', {}).get('direct_debit_monthly', {})
+    standing_charge_inc_vat = region_tariffs.get('standing_charge_inc_vat')
+
+    if standing_charge_inc_vat is None:
+        raise ValueError(f"Standing charge including VAT not found for region {region_code}.")
 
     # Find the link for standard unit rates
-    links = region_tariffs['links']
+    links = region_tariffs.get('links', [])
     unit_rates_link = next((
-        item['href'] for item in links
-        if item['rel'].lower() == 'standard_unit_rates'
+        item.get('href') for item in links
+        if item.get('rel', '').lower() == 'standard_unit_rates'
     ), None)
 
-    # Raise an exception if no link is found
     if not unit_rates_link:
         raise ValueError(f"Standard unit rates link not found for region: {region_code}")
 
@@ -228,7 +230,8 @@ def get_potential_tariff_rates(tariff_short_code, region_code):
     unit_rates = rest_query(
         f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z")
 
-    return standing_charge_inc_vat, unit_rates['results']
+    return standing_charge_inc_vat, unit_rates.get('results', [])
+
 
 
 def rest_query(url):
