@@ -118,6 +118,13 @@ def send_notification(message, title="Octobot"):
         print("No notification services configured. Check config.NOTIFICATION_URLS.")
         return
 
+    # Check if any of the URLs are Discord URLs, and only wrap the message in backticks if *only* Discord is present
+    urls = config.NOTIFICATION_URLS.split(',') if config.NOTIFICATION_URLS else []  # Get the URLs, handle None
+    is_only_discord = all("discord" in url.lower() for url in urls)
+
+    if is_only_discord:
+        message = f"`{message}`"
+
     apobj.notify(body=message, title=title)
 
 
