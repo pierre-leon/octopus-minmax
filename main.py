@@ -209,7 +209,7 @@ def compare_and_switch():
     account_info = get_acc_info()
     current_tariff = account_info.current_tariff
 
-    total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in account_info.consumption) \
+    total_curr_cost = sum(float(entry['costDeltaWithTax'] or 0) for entry in account_info.consumption) \
                       + account_info.standing_charge
 
     total_wh = sum(float(consumption['consumptionDelta']) for consumption in account_info.consumption)
