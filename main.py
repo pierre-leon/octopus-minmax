@@ -1,12 +1,13 @@
-import os
-
-from playwright.sync_api import sync_playwright
-import requests
-from datetime import datetime, date
-from gql import gql, Client
-from gql.transport.aiohttp import AIOHTTPTransport
 import time
 import traceback
+from datetime import date, datetime
+
+import requests
+from apprise import Apprise
+from gql import Client, gql
+from gql.transport.aiohttp import AIOHTTPTransport
+from playwright.sync_api import sync_playwright
+
 import config
 from account_info import AccountInfo
 from queries import *
@@ -18,14 +19,33 @@ gql_client = None
 tariffs = []
 
 
-def send_discord_message(content):
-    print(content)
-    if config.DISCORD_WEBHOOK is not None:
-        content = f"`{content}`"
-        data = {
-            "content": content
-        }
-        requests.post(config.DISCORD_WEBHOOK, json=data)
+def send_notification(message, title="Octobot"):
+    """Sends a notification using Apprise.
+
+    Args:
+        message (str): The message to send.
+        title (str, optional): The title of the notification. Defaults to "Octobot".
+    """
+    print(message)
+
+    apobj = Apprise()
+
+    if config.NOTIFICATION_URLS:
+        for url in config.NOTIFICATION_URLS.split(','):
+            apobj.add(url.strip())
+
+    if not apobj:
+        print("No notification services configured. Check config.NOTIFICATION_URLS.")
+        return
+
+    # Check if any of the URLs are Discord URLs, and only wrap the message in backticks if *only* Discord is present
+    urls = config.NOTIFICATION_URLS.split(',') if config.NOTIFICATION_URLS else []  # Get the URLs, handle None
+    is_only_discord = all("discord" in url.lower() for url in urls)
+
+    if is_only_discord:
+        message = f"`{message}`"
+
+    apobj.notify(body=message, title=title)
 
 
 def accept_new_agreement():
@@ -43,7 +63,7 @@ def accept_new_agreement():
                     last_step_date = datetime.fromisoformat(
                         stage['steps'][-1]['updatedAt'].replace('Z', '+00:00')).date()
                     if last_step_date == today and stage['status'] == 'COMPLETED':
-                        send_discord_message("Post-enrolment automatically completed with today's date.")
+                        send_notification("Post-enrolment automatically completed with today's date.")
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
@@ -158,6 +178,7 @@ def switch_tariff(target_tariff):
         page = context.new_page()
         page.goto("https://octopus.energy/")
         page.wait_for_timeout(1000)
+	print("Octopus Energy website loaded")
         page.get_by_label("Log in to my account").click()
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Email address").click()
@@ -171,9 +192,11 @@ def switch_tariff(target_tariff):
         page.wait_for_timeout(1000)
         page.get_by_placeholder("Password").press("Enter")
         page.wait_for_timeout(1000)
+	print("Login details entered")
         # replace with env
         page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
         page.wait_for_timeout(10000)
+	print("Tariff switch page loaded")
         page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
         page.wait_for_timeout(10000)
         # check if url has success
@@ -204,7 +227,7 @@ def setup_gql(token):
 def compare_and_switch():
     welcome_message = "DRY RUN: " if config.DRY_RUN else ""
     welcome_message += "Octobot on. Starting comparison of today's costs..."
-    send_discord_message(welcome_message)
+    send_notification(welcome_message)
 
     account_info = get_acc_info()
     current_tariff = account_info.current_tariff
@@ -268,26 +291,26 @@ def compare_and_switch():
     # 2p buffer because cba
     if savings > 2:
         switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary,
-                                                                               new_tariff=cheapest_tariff.display_name)
-        send_discord_message(switch_message)
+        send_notification(switch_message)
 
         if config.DRY_RUN:
-            dry_run_message = "DRY RUN: Not going through with switch today."
-            send_discord_message(dry_run_message)
+            dry_run_message ="DRY RUN: Not going through with switch today."
+            send_notification(dry_run_message)
             return None
 
         switch_tariff(cheapest_tariff.url_tariff_name)
-        send_discord_message("Tariff switch requested successfully.")
+        send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
         accept_new_agreement()
-        send_discord_message("Accepted agreement. Switch successful.")
+        send_notification("Accepted agreement. Switch successful.")
 
         if verify_new_agreement():
-            send_discord_message("Verified new agreement successfully. Process finished.")
+            send_notification("Verified new agreement successfully. Process finished.")
         else:
-            send_discord_message("Unable to accept new agreement. Please check your emails.")
+            send_notification("Unable to accept new agreement. Please check your emails.")
     else:
+        send_notification("Not switching today." + summary)
         send_discord_message(f"{summary}\nNot switching today.")
 
 
@@ -322,7 +345,7 @@ def run_tariff_compare():
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
-        send_discord_message(traceback.format_exc())
+        send_notification(traceback.format_exc())
 
 
 run_tariff_compare()

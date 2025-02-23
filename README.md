@@ -7,7 +7,7 @@ Due to how Octopus Energy's Smart tariffs work, switching manually makes the *ne
 
 I created this because I've been a long-time Agile customer who got tired of the price spikes. I now use this to enjoy the benefits of Agile (cheap days) without the risks (expensive days).
 
-I personally have this running automatically every day at 11 PM inside a Raspberry Pi Docker container, but you can run it wherever you want. It also uses Discord webhooks to send you updates and logs, but that's not necessary for it to work.
+I personally have this running automatically every day at 11 PM inside a Raspberry Pi Docker container, but you can run it wherever you want.  It sends notifications and updates to a variety of services via [Apprise](https://github.com/caronc/apprise), but that's not required for it to work.
 
 ## How to Use
 **Note**: This requires your email and password when using Playwright to log into your account. None of your data goes anywhere except to Octopus Energy.
@@ -35,7 +35,7 @@ docker run -d \
   -e OCTOPUS_LOGIN_EMAIL="<your_email>" \
   -e OCTOPUS_LOGIN_PASSWD="<your_password>" \
   -e EXECUTION_TIME="23:00" \
-  -e DISCORD_WEBHOOK="<your_webhook_url>" \
+  -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
   -e DRY_RUN=false \
   -e PYTHONUNBUFFERED=1 \
@@ -60,3 +60,25 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling. |
 | `DRY_RUN`              | (optional) A flag to compare but not switch tariffs.                                               |
 
+#### Setting up Apprise Notifications
+
+The `NOTIFICATION_URLS` environment variable allows you to configure notifications using the powerful [Apprise](https://github.com/caronc/apprise) library.  Apprise supports a wide variety of notification services, including Discord, Telegram, Slack, email, and many more.
+
+To configure notifications:
+
+1.  **Determine your desired notification services:**  Decide which services you want to receive notifications on (e.g., Discord, Telegram).
+
+2.  **Find the Apprise URL format for each service:**  Consult the [Apprise documentation](https://github.com/caronc/apprise/wiki) to find the correct URL format for each service you've chosen.  For example:
+
+    *   **Discord:** `discord://webhook_id/webhook_token`
+    *   **Telegram:** `tgram://bottoken/ChatID`
+
+3.  **Set the `NOTIFICATION_URLS` environment variable:** Create a comma-separated string containing the Apprise URLs for all your desired services.  For example:
+
+    ```bash
+    NOTIFICATION_URLS="discord://webhook_id/webhook_token,tgram://bottoken/ChatID,mailto://user:pass@example.com?to=recipient@example.com"
+    ```
+
+    Make sure to replace the example values with your actual credentials.
+
+4.  **Restart the container (if using Docker) or run the script:**  The bot will now send notifications to all the configured services.
