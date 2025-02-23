@@ -347,6 +347,4 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_notification(traceback.format_exc())
-
-
-run_tariff_compare()
+        
