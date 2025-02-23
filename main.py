@@ -106,6 +106,7 @@ def send_notification(message, title="Octobot"):
         message (str): The message to send.
         title (str, optional): The title of the notification. Defaults to "Octobot".
     """
+    print(message)
 
     apobj = Apprise()
 
