@@ -291,8 +291,7 @@ def compare_and_switch():
 
     # 2p buffer because cba
     if savings > 2:
-        switch_message = "{summary}\nInitiating Switch to {new_tariff}".format(summary=summary,
-                                                                               new_tariff=cheapest_tariff.display_name)
+        switch_message = f"{summary}\nInitiating Switch to {cheapest_tariff.display_name}"
         send_notification(switch_message)
 
         if config.DRY_RUN:
