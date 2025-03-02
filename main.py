@@ -184,27 +184,27 @@ def get_acc_info():
     return current_tariff, curr_stdn_charge, region_code, consumption
 
 
-def get_potential_tariff_rates(tariff_short_code, region_code):
+def get_potential_tariff_rates(tariff, region_code):
     all_products = rest_query(f"{config.BASE_URL}/products/?brand=OCTOPUS_ENERGY&is_business=false")
 
     # Get the required tariff from the results
-    tariff_result = next((
+    tariff_code = next((
         product for product in all_products.get('results', [])
-        if product.get('display_name') == ("Agile Octopus" if tariff_short_code == "AGILE" else "Octopus Go")
+        if product.get('display_name') == tariff
            and product.get('direction') == "IMPORT"
     ), None)
 
-    if not tariff_result:
-        raise ValueError(f"Tariff not found for {tariff_short_code}")
+    if not tariff_code:
+        raise ValueError(f"No matching tariff found for {tariff}")
 
     # Use the self links to navigate to the tariff details
     tariff_self_link = next((
-        item.get('href') for item in tariff_result.get('links', [])
+        item.get('href') for item in tariff_code.get('links', [])
         if item.get('rel', '').lower() == 'self'
     ), None)
 
     if not tariff_self_link:
-        raise ValueError(f"Self link not found for tariff {tariff_result.get('code', 'Unknown')}.")
+        raise ValueError(f"Self link not found for tariff {tariff_code.get('code', 'Unknown')}.")
 
     tariff_details = rest_query(tariff_self_link)
 
