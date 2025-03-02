@@ -102,12 +102,11 @@ def get_acc_info() -> AccountInfo:
 
 
 def get_potential_tariff_rates(tariff, region_code):
-    all_products = rest_query(f"{config.BASE_URL}/products")
+    all_products = rest_query(f"{config.BASE_URL}/products/?brand=OCTOPUS_ENERGY&is_business=false")
     product = next((
         product for product in all_products['results']
         if product['display_name'] == tariff
            and product['direction'] == "IMPORT"
-           and product['brand'] == "OCTOPUS_ENERGY"
     ), None)
 
     tariff_code = product.get('code')
@@ -126,13 +125,18 @@ def get_potential_tariff_rates(tariff, region_code):
 
     tariff_details = rest_query(product_link)
 
-    # Access the standing charge including VAT
-    filtered_region = tariff_details.get('single_register_electricity_tariffs', {}).get(f'_{region_code}', {})
+    # Get the standing charge including VAT
+    region_code_key = f'_{region_code}'
+    filtered_region = tariff_details.get('single_register_electricity_tariffs', {}).get(region_code_key)
+
+    if filtered_region is None:
+        raise ValueError(f"Region code not found {region_code_key}.")
+
     region_tariffs = filtered_region.get('direct_debit_monthly') or filtered_region.get('varying')
     standing_charge_inc_vat = region_tariffs.get('standing_charge_inc_vat')
 
     if standing_charge_inc_vat is None:
-        raise ValueError(f"Standing charge including VAT not found for region {region_code}.")
+        raise ValueError(f"Standing charge including VAT not found for region {region_code_key}.")
 
     # Find the link for standard unit rates
     region_links = region_tariffs.get('links', [])
@@ -142,12 +146,12 @@ def get_potential_tariff_rates(tariff, region_code):
     ), None)
 
     if not unit_rates_link:
-        raise ValueError(f"Standard unit rates link not found for region: {region_code}")
+        raise ValueError(f"Standard unit rates link not found for region: {region_code_key}")
 
     # Get today's rates
     today = date.today()
-    unit_rates = rest_query(
-        f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z")
+    unit_rates_link_with_time = f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z"
+    unit_rates = rest_query(unit_rates_link_with_time)
 
     return standing_charge_inc_vat, unit_rates.get('results', [])
 
