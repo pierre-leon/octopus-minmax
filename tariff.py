@@ -1,3 +1,5 @@
+import re
+
 class Tariff:
     def __init__(self,
                  id: str, display_name: str, api_display_name: str, tariff_code_matcher: str,
@@ -10,8 +12,8 @@ class Tariff:
         self.switchable = switchable  # Whether this tariff can be switched to or not
 
     def is_tariff(self, current_tariff_name: str) -> bool:
-        """Check if the given tariff name matches the tariff code matcher."""
-        return self.tariff_code_matcher.lower() in current_tariff_name.lower()
+        """Check if the given tariff name matches the tariff code matcher using regex."""
+        return re.search(self.tariff_code_matcher, current_tariff_name,  re.IGNORECASE) is not None
 
     def __eq__(self, other):
         """Compare two tariffs based on their ID."""
@@ -27,8 +29,8 @@ class Tariff:
 
 
 TARIFFS = [
-    Tariff("go", "Octopus Go", "Octopus Go", "go", "go", True), # Octopus Go
-    Tariff("agile", "Agile Octopus", "Agile Octopus", "agile", "agile", True), # Octopus Agile
-    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", "cosy", "cosy-octopus", True), # Octopus Cosy
-    Tariff("flexible", "Flexible Octopus", "Flexible Octopus", "var", "", False) # Flexible Octopus
+    Tariff("go", "Octopus Go", "Octopus Go", r"-go-", "go", True), # Octopus Go
+    Tariff("agile", "Agile Octopus", "Agile Octopus", r"-agile-", "agile", True), # Octopus Agile
+    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", r"-cosy-", r"cosy-octopus", True), # Octopus Cosy
+    Tariff("flexible", "Flexible Octopus", "Flexible Octopus", r"(?<!go-)var", "", False) # Flexible Octopus
 ]
