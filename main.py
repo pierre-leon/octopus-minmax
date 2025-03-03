@@ -57,17 +57,12 @@ def get_terms_version(product_code):
 
 def accept_new_agreement(product_code, enrolment_id):
     # get terms and conditions version
-    query = gql(terms_query.format(product_code=product_code))
-    result = gql_client.execute_async(query)
-    version_string = result['termsAndConditionsForProduct']['version']
-    try:
-      version_major, version_minor = map(int, version_string.split('.'))
-    except ValueError:
-      send_notification(f"Invalid version string: {version_string}, using 1.1")
-      version_major = 1
-      version_minor = 1
+    version = get_terms_version(product_code)
     # accept terms and conditions
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id,version_major=int(version_major),version_minor=int(version_minor)))
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+                                          enrolment_id=enrolment_id,
+                                          version_major=version['major'],
+                                          version_minor=version['minor']))
     result = gql_client.execute(query)
     return result['acceptTermsAndConditions']['acceptedVersion']
 
