@@ -13,8 +13,8 @@ from account_info import AccountInfo
 from queries import *
 from tariff import TARIFFS
 
-gql_transport = None
-gql_client = None
+gql_transport: AIOHTTPTransport
+gql_client: Client
 
 tariffs = []
 
@@ -28,13 +28,13 @@ def send_notification(message, title="Octobot"):
     """
     print(message)
 
-    apobj = Apprise()
+    apprise = Apprise()
 
     if config.NOTIFICATION_URLS:
         for url in config.NOTIFICATION_URLS.split(','):
-            apobj.add(url.strip())
+            apprise.add(url.strip())
 
-    if not apobj:
+    if not apprise:
         print("No notification services configured. Check config.NOTIFICATION_URLS.")
         return
 
@@ -45,7 +45,7 @@ def send_notification(message, title="Octobot"):
     if is_only_discord:
         message = f"`{message}`"
 
-    apobj.notify(body=message, title=title)
+    apprise.notify(body=message, title=title)
 
 
 def accept_new_agreement():
@@ -102,27 +102,58 @@ def get_acc_info() -> AccountInfo:
 
 
 def get_potential_tariff_rates(tariff, region_code):
-    all_products = rest_query(f"{config.BASE_URL}/products")
-    tariff_code = next((
-        product["code"] for product in all_products['results']
+    all_products = rest_query(f"{config.BASE_URL}/products/?brand=OCTOPUS_ENERGY&is_business=false")
+    product = next((
+        product for product in all_products['results']
         if product['display_name'] == tariff
            and product['direction'] == "IMPORT"
-           and product['brand'] == "OCTOPUS_ENERGY"
     ), None)
 
+    tariff_code = product.get('code')
+
     if tariff_code is None:
-        raise Exception(f"No matching tariff found for {tariff}")
+        raise ValueError(f"No matching tariff found for {tariff}")
 
-    # Residential tariffs are always E-1R (i think, lol)    
-    product_code = f"E-1R-{tariff_code}-{region_code}"
+    # Use the self links to navigate to the tariff details
+    product_link = next((
+        item.get('href') for item in product.get('links', [])
+        if item.get('rel', '').lower() == 'self'
+    ), None)
 
+    if not product_link:
+        raise ValueError(f"Self link not found for tariff {tariff_code}.")
+
+    tariff_details = rest_query(product_link)
+
+    # Get the standing charge including VAT
+    region_code_key = f'_{region_code}'
+    filtered_region = tariff_details.get('single_register_electricity_tariffs', {}).get(region_code_key)
+
+    if filtered_region is None:
+        raise ValueError(f"Region code not found {region_code_key}.")
+
+    region_tariffs = filtered_region.get('direct_debit_monthly') or filtered_region.get('varying')
+    standing_charge_inc_vat = region_tariffs.get('standing_charge_inc_vat')
+
+    if standing_charge_inc_vat is None:
+        raise ValueError(f"Standing charge including VAT not found for region {region_code_key}.")
+
+    # Find the link for standard unit rates
+    region_links = region_tariffs.get('links', [])
+    unit_rates_link = next((
+        item.get('href') for item in region_links
+        if item.get('rel', '').lower() == 'standard_unit_rates'
+    ), None)
+
+    if not unit_rates_link:
+        raise ValueError(f"Standard unit rates link not found for region: {region_code_key}")
+
+    # Get today's rates
     today = date.today()
-    unit_rates = rest_query(
-        f"{config.BASE_URL}/products/{tariff_code}/electricity-tariffs/{product_code}/standard-unit-rates/?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z")
-    standing_charge = rest_query(
-        f"{config.BASE_URL}/products/{tariff_code}/electricity-tariffs/{product_code}/standing-charges/")
+    unit_rates_link_with_time = f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z"
+    unit_rates = rest_query(unit_rates_link_with_time)
 
-    return standing_charge['results'][0]['value_inc_vat'], unit_rates['results']
+    return standing_charge_inc_vat, unit_rates.get('results', [])
 
 
 def rest_query(url):
@@ -170,28 +201,29 @@ def switch_tariff(target_tariff):
     with sync_playwright() as playwright:
         browser = None
         try:
-            browser = playwright.chromium.launch(
+            browser = playwright.firefox.launch(
                 headless=True)
         except Exception as e:
-            print(e)  # Should print out if its not working
+            print(e)  # Should print out if it's not working
         context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
+        page.set_default_timeout(300_000) #5 minutes 
         page.goto("https://octopus.energy/")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         print("Octopus Energy website loaded")
         page.get_by_label("Log in to my account").click()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         page.get_by_placeholder("Email address").click()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         # replace w env
         page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         page.get_by_placeholder("Email address").press("Tab")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         page.get_by_placeholder("Password").press("Enter")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(5000)
         print("Login details entered")
         # replace with env
         page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
@@ -212,7 +244,7 @@ def verify_new_agreement():
                       for agreement in result['account']['electricityAgreements']
                       if 'validFrom' in agreement)
 
-    # For some reason, sometimes the agreement has no end date so I'm not not sure if this bit is still relevant?
+    # For some reason, sometimes the agreement has no end date, so I'm not sure if this bit is still relevant?
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
     # next_year = valid_from.replace(year=valid_from.year + 1)
     return valid_from == today
@@ -247,9 +279,8 @@ def compare_and_switch():
                f"£{account_info.standing_charge / 100:.2f} s/c)\n"
 
     # Track costs key: Tariff, value: total cost in pence
-    costs = {}
     # Add current tariff
-    costs[current_tariff] = total_curr_cost
+    costs = {current_tariff: total_curr_cost}
 
     # Calculate costs of other tariffs
     for tariff in tariffs:
