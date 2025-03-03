@@ -55,7 +55,7 @@ def get_terms_version(product_code):
 
     return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
 
-def accept_new_agreement():
+def accept_new_agreement(product_code):
     query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     try:
@@ -74,7 +74,12 @@ def accept_new_agreement():
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id))
+    
+    version = get_terms_version(product_code)
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+                                          enrolment_id=enrolment_id,
+                                          version_major=version['major'],
+                                          version_minor=version['minor']))
     result = gql_client.execute(query)
 
 
@@ -344,7 +349,7 @@ def compare_and_switch():
         send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
-        accept_new_agreement()
+        accept_new_agreement(account_info.product_code)
         send_notification("Accepted agreement. Switch successful.")
 
         if verify_new_agreement():
