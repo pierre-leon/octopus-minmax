@@ -47,6 +47,13 @@ def send_notification(message, title="Octobot"):
 
     apprise.notify(body=message, title=title)
 
+# The version of the terms and conditions is required to accept the new tariff
+def get_terms_version(product_code):
+    query = gql(get_terms_version_query.format(product_code=product_code))
+    result = gql_client.execute(query)
+    terms_version = result.get('termsAndConditionsForProduct', {}).get('version', "1.0").split('.')
+
+    return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
 
 def accept_new_agreement(product_code, enrolment_id):
     # get terms and conditions version
@@ -72,6 +79,9 @@ def get_acc_info() -> AccountInfo:
     tariff_code = next(agreement['tariff']['tariffCode']
                        for agreement in result['account']['electricityAgreements']
                        if 'tariffCode' in agreement['tariff'])
+    product_code = next(agreement['tariff']['productCode']
+                        for agreement in result['account']['electricityAgreements']
+                        if 'productCode' in agreement['tariff'])
     region_code = tariff_code[-1]
     device_id = next(device['deviceId']
                      for agreement in result['account']['electricityAgreements']
