@@ -10,14 +10,21 @@ accept_terms_query = """mutation {{
         accountNumber: "{account_number}",
         enrolmentId: "{enrolment_id}",
         termsVersion: {{
-            versionMajor: 1,
-            versionMinor: 1
+            versionMajor: {version_major},
+            versionMinor: {version_minor}
         }}
     }}) 
     {{
     acceptedVersion
   }}
 }}"""
+
+terms_query = """query {{
+          termsAndConditionsForProduct(productCode: "{product_code}") {{
+                name
+                version
+                }}
+            }}"""
 
 consumption_query = """query {{
     smartMeterTelemetry(

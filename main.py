@@ -48,7 +48,7 @@ def send_notification(message, title="Octobot"):
     apprise.notify(body=message, title=title)
 
 
-def accept_new_agreement():
+def accept_new_agreement(product_code):
     query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     try:
@@ -67,8 +67,20 @@ def accept_new_agreement():
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id))
+    # get terms and conditions version
+    query = gql(terms_query.format(product_code=product_code))
+    result = gql_client.execute_async(query)
+    version_string = result['termsAndConditionsForProduct']['version']
+    try:
+      version_major, version_minor = map(int, version_string.split('.'))
+    except ValueError:
+      send_notification(f"Invalid version string: {version_string}, using 1.1")
+      version_major = 1
+      version_minor = 1
+    # accept terms and conditions
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id,version_major=int(version_major),version_minor=int(version_minor)))
     result = gql_client.execute(query)
+    return result['acceptTermsAndConditions']['acceptedVersion']
 
 
 def get_acc_info() -> AccountInfo:
@@ -109,9 +121,9 @@ def get_potential_tariff_rates(tariff, region_code):
            and product['direction'] == "IMPORT"
     ), None)
 
-    tariff_code = product.get('code')
+    product_code = product.get('code')
 
-    if tariff_code is None:
+    if product_code is None:
         raise ValueError(f"No matching tariff found for {tariff}")
 
     # Use the self links to navigate to the tariff details
@@ -121,7 +133,7 @@ def get_potential_tariff_rates(tariff, region_code):
     ), None)
 
     if not product_link:
-        raise ValueError(f"Self link not found for tariff {tariff_code}.")
+        raise ValueError(f"Self link not found for tariff {product_code}.")
 
     tariff_details = rest_query(product_link)
 
@@ -153,7 +165,7 @@ def get_potential_tariff_rates(tariff, region_code):
     unit_rates_link_with_time = f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z"
     unit_rates = rest_query(unit_rates_link_with_time)
 
-    return standing_charge_inc_vat, unit_rates.get('results', [])
+    return standing_charge_inc_vat, unit_rates.get('results', []), product_code
 
 
 def rest_query(url):
@@ -288,8 +300,9 @@ def compare_and_switch():
             continue  # Skip if you're already on that tariff
 
         try:
-            (potential_std_charge, potential_unit_rates) = \
+            (potential_std_charge, potential_unit_rates, potential_product_code) = \
                 get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
+            tariff.product_code = potential_product_code
             potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
 
             total_tariff_consumption_cost = sum(period['calculated_cost'] for period in potential_costs)
@@ -334,8 +347,8 @@ def compare_and_switch():
         send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
-        accept_new_agreement()
-        send_notification("Accepted agreement. Switch successful.")
+        accepted_version = accept_new_agreement(cheapest_tariff.product_code)
+        send_notification("Accepted agreement (v.{version}). Switch successful.".format(version=accepted_version))
 
         if verify_new_agreement():
             send_notification("Verified new agreement successfully. Process finished.")
