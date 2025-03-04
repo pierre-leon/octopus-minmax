@@ -6,7 +6,7 @@ import requests
 from apprise import Apprise
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
-from playwright.sync_api import sync_playwright
+#from playwright.sync_api import sync_playwright
 
 import config
 from account_info import AccountInfo
@@ -48,25 +48,7 @@ def send_notification(message, title="Octobot"):
     apprise.notify(body=message, title=title)
 
 
-def accept_new_agreement(product_code):
-    query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
-    result = gql_client.execute(query)
-    try:
-        enrolment_id = next(entry['id'] for entry in result['productEnrolments'] if entry['status'] == "IN_PROGRESS")
-    except StopIteration:
-        # Strangely sometimes the enrolment skips 'IN_PROGRESS' and just auto-accepts, so we check if it's completed with today's date
-        today = datetime.now().date()
-
-        for entry in result['productEnrolments']:
-            for stage in entry['stages']:
-                if stage['name'] == 'post-enrolment':
-                    last_step_date = datetime.fromisoformat(
-                        stage['steps'][-1]['updatedAt'].replace('Z', '+00:00')).date()
-                    if last_step_date == today and stage['status'] == 'COMPLETED':
-                        send_notification("Post-enrolment automatically completed with today's date.")
-                        return
-
-        raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
+def accept_new_agreement(product_code, enrolment_id):
     # get terms and conditions version
     query = gql(terms_query.format(product_code=product_code))
     result = gql_client.execute_async(query)
@@ -99,6 +81,7 @@ def get_acc_info() -> AccountInfo:
     curr_stdn_charge = next(agreement['tariff']['standingCharge']
                             for agreement in result['account']['electricityAgreements']
                             if 'standingCharge' in agreement['tariff'])
+    mpan = result['account']['electricityAgreements'][0]['meterPoint']['mpan']
 
     matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
     if matching_tariff is None:
@@ -110,7 +93,7 @@ def get_acc_info() -> AccountInfo:
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
-    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption)
+    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption, mpan)
 
 
 def get_potential_tariff_rates(tariff, region_code):
@@ -209,43 +192,12 @@ def get_token():
     return result['obtainKrakenToken']['token']
 
 
-def switch_tariff(target_tariff):
-    with sync_playwright() as playwright:
-        browser = None
-        try:
-            browser = playwright.firefox.launch(
-                headless=True)
-        except Exception as e:
-            print(e)  # Should print out if it's not working
-        context = browser.new_context(viewport={"width": 1920, "height": 1080})
-        page = context.new_page()
-        page.set_default_timeout(300_000) #5 minutes 
-        page.goto("https://octopus.energy/")
-        page.wait_for_timeout(5000)
-        print("Octopus Energy website loaded")
-        page.get_by_label("Log in to my account").click()
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").click()
-        page.wait_for_timeout(5000)
-        # replace w env
-        page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Email address").press("Tab")
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
-        page.wait_for_timeout(5000)
-        page.get_by_placeholder("Password").press("Enter")
-        page.wait_for_timeout(5000)
-        print("Login details entered")
-        # replace with env
-        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
-        page.wait_for_timeout(10000)
-        print("Tariff switch page loaded")
-        page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
-        page.wait_for_timeout(10000)
-        # check if url has success
-        context.close()
-        browser.close()
+def switch_tariff(target_product_code, mpan):
+    # Note that we must use tomorrow's date but the switch can (will) happen today
+    change_date = date.today() + date.timedelta(days=1)
+    query = gql(switch_query.format(account_number=config["ACC_NUMBER"], mpan=mpan, product_code=target_product_code, change_date=change_date))
+    result = gql_client.execute_async(query)
+    return result['startOnboardingProcess']['productEnrolment']['id']
 
 
 def verify_new_agreement():
@@ -343,11 +295,11 @@ def compare_and_switch():
             send_notification(dry_run_message)
             return None
 
-        switch_tariff(cheapest_tariff.url_tariff_name)
+        enrolment_id = switch_tariff(cheapest_tariff.product_code, account_info.mpan)
         send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
-        accepted_version = accept_new_agreement(cheapest_tariff.product_code)
+        accepted_version = accept_new_agreement(cheapest_tariff.product_code, enrolment_id)
         send_notification("Accepted agreement (v.{version}). Switch successful.".format(version=accepted_version))
 
         if verify_new_agreement():

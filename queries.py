@@ -85,3 +85,20 @@ enrolment_query = """query {{
     }}
   }}
 }}"""
+
+switch_query = """mutation {{
+  startOnboardingProcess(input: {{
+    accountNumber: "{account_number}",
+    mpan: "{mpan}",
+    productCode: "{product_code}",
+    targetAgreementChangeDate: "{change_date}"
+  }})
+  {{
+    onboardingProcess {{
+      id
+    }}
+    productEnrolment {{
+      id
+    }}
+  }}
+}}"""
