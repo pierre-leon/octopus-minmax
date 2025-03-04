@@ -47,8 +47,15 @@ def send_notification(message, title="Octobot"):
 
     apprise.notify(body=message, title=title)
 
+# The version of the terms and conditions is required to accept the new tariff
+def get_terms_version(product_code):
+    query = gql(get_terms_version_query.format(product_code=product_code))
+    result = gql_client.execute(query)
+    terms_version = result.get('termsAndConditionsForProduct', {}).get('version', "1.0").split('.')
 
-def accept_new_agreement():
+    return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
+
+def accept_new_agreement(product_code):
     query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     try:
@@ -67,7 +74,12 @@ def accept_new_agreement():
                         return
 
         raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id))
+    
+    version = get_terms_version(product_code)
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+                                          enrolment_id=enrolment_id,
+                                          version_major=version['major'],
+                                          version_minor=version['minor']))
     result = gql_client.execute(query)
 
 
@@ -78,6 +90,9 @@ def get_acc_info() -> AccountInfo:
     tariff_code = next(agreement['tariff']['tariffCode']
                        for agreement in result['account']['electricityAgreements']
                        if 'tariffCode' in agreement['tariff'])
+    product_code = next(agreement['tariff']['productCode']
+                        for agreement in result['account']['electricityAgreements']
+                        if 'productCode' in agreement['tariff'])
     region_code = tariff_code[-1]
     device_id = next(device['deviceId']
                      for agreement in result['account']['electricityAgreements']
@@ -98,7 +113,7 @@ def get_acc_info() -> AccountInfo:
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
-    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption)
+    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption, product_code)
 
 
 def get_potential_tariff_rates(tariff, region_code):
@@ -334,7 +349,7 @@ def compare_and_switch():
         send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
-        accept_new_agreement()
+        accept_new_agreement(account_info.product_code)
         send_notification("Accepted agreement. Switch successful.")
 
         if verify_new_agreement():

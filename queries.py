@@ -4,19 +4,27 @@ token_query = """mutation {{
 	}}
 }}"""
 
-# I have no idea if versionMajor or versionMinor has an impact???
 accept_terms_query = """mutation {{
     acceptTermsAndConditions(input: {{
         accountNumber: "{account_number}",
         enrolmentId: "{enrolment_id}",
         termsVersion: {{
-            versionMajor: 1,
-            versionMinor: 1
+            versionMajor: {version_major},
+            versionMinor: {version_minor}
         }}
     }}) 
     {{
     acceptedVersion
   }}
+}}"""
+
+get_terms_version_query = """query {{
+    termsAndConditionsForProduct(productCode: "{product_code}") {{
+        name
+        pdfUrl
+        version
+        effectiveFrom
+    }}
 }}"""
 
 consumption_query = """query {{
