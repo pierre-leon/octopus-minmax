@@ -19,11 +19,11 @@ accept_terms_query = """mutation {{
 }}"""
 
 get_terms_version_query = """query {{
-          termsAndConditionsForProduct(productCode: "{product_code}") {{
-                name
-                version
-                }}
-            }}"""
+    termsAndConditionsForProduct(productCode: "{product_code}") {{
+        name
+        version
+    }}
+}}"""
 
 consumption_query = """query {{
     smartMeterTelemetry(

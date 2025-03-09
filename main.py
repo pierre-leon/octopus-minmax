@@ -1,6 +1,6 @@
 import time
 import traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import requests
 from apprise import Apprise
@@ -64,7 +64,8 @@ def accept_new_agreement(product_code, enrolment_id):
                                           version_major=version['major'],
                                           version_minor=version['minor']))
     result = gql_client.execute(query)
-    return result['acceptTermsAndConditions']['acceptedVersion']
+    return result.get('acceptTermsAndConditions', {}).get('acceptedVersion', "unknown version")
+
 
 
 def get_acc_info() -> AccountInfo:
@@ -86,7 +87,11 @@ def get_acc_info() -> AccountInfo:
     curr_stdn_charge = next(agreement['tariff']['standingCharge']
                             for agreement in result['account']['electricityAgreements']
                             if 'standingCharge' in agreement['tariff'])
-    mpan = result['account']['electricityAgreements'][0]['meterPoint']['mpan']
+    mpan = None
+    for agreement in result.get("account", {}).get("electricityAgreements", []):
+        mpan = agreement.get("meterPoint", {}).get("mpan")
+        if mpan:
+            break 
 
     matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
     if matching_tariff is None:
@@ -199,10 +204,10 @@ def get_token():
 
 def switch_tariff(target_product_code, mpan):
     # Note that we must use tomorrow's date but the switch can (will) happen today
-    change_date = date.today() + date.timedelta(days=1)
-    query = gql(switch_query.format(account_number=config["ACC_NUMBER"], mpan=mpan, product_code=target_product_code, change_date=change_date))
-    result = gql_client.execute_async(query)
-    return result['startOnboardingProcess']['productEnrolment']['id']
+    change_date = date.today() + timedelta(days=1)
+    query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
+    result = gql_client.execute(query)
+    return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
 
 
 def verify_new_agreement():
@@ -300,8 +305,20 @@ def compare_and_switch():
             send_notification(dry_run_message)
             return None
 
+        if cheapest_tariff.product_code is None:
+            send_notification("ERROR: product_code is missing.")
+            return 
+        
+        if account_info.mpan is None:
+            send_notification("ERROR: mpan is missing.")
+            return  
+        
         enrolment_id = switch_tariff(cheapest_tariff.product_code, account_info.mpan)
-        send_notification("Tariff switch requested successfully.")
+        if enrolment_id is None:
+            send_notification("ERROR: couldn't get enrolment ID")
+            return
+        else:
+            send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
         accepted_version = accept_new_agreement(cheapest_tariff.product_code, enrolment_id)
