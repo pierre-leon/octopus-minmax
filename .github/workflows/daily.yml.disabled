@@ -17,8 +17,6 @@
 #       ACC_NUMBER: ${{ secrets.ACC_NUMBER }}
 #       BASE_URL: ${{ secrets.BASE_URL }}
 #       NOTIFICATION_URLS: ${{ secrets.NOTIFICATION_URLS }}
-#       OCTOPUS_LOGIN_EMAIL: ${{ secrets.OCTOPUS_LOGIN_EMAIL }}
-#       OCTOPUS_LOGIN_PASSWD: ${{ secrets.OCTOPUS_LOGIN_PASSWD }}
 #     steps:
 #     - uses: actions/checkout@v4
 #     - name: Set up Python 3.10
