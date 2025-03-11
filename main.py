@@ -89,9 +89,10 @@ def get_acc_info() -> AccountInfo:
                             if 'standingCharge' in agreement['tariff'])
     mpan = None
     for agreement in result.get("account", {}).get("electricityAgreements", []):
-        mpan = agreement.get("meterPoint", {}).get("mpan")
-        if mpan:
-            break 
+        meter_point = agreement.get("meterPoint", {})
+        if meter_point.get("direction") == "IMPORT" and meter_point.get("mpan"):
+            mpan = meter_point.get("mpan")
+            break
 
     matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
     if matching_tariff is None:
