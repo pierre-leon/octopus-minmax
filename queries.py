@@ -52,6 +52,7 @@ account_query = """query{{
                 }}
             }}
             mpan
+            direction
         }}
         tariff {{
             ... on HalfHourlyTariff {{
