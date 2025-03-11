@@ -21,9 +21,7 @@ accept_terms_query = """mutation {{
 get_terms_version_query = """query {{
     termsAndConditionsForProduct(productCode: "{product_code}") {{
         name
-        pdfUrl
         version
-        effectiveFrom
     }}
 }}"""
 
@@ -54,6 +52,7 @@ account_query = """query{{
                 }}
             }}
             mpan
+            direction
         }}
         tariff {{
             ... on HalfHourlyTariff {{
@@ -83,6 +82,23 @@ enrolment_query = """query {{
         status
         updatedAt
       }}
+    }}
+  }}
+}}"""
+
+switch_query = """mutation {{
+  startOnboardingProcess(input: {{
+    accountNumber: "{account_number}",
+    mpan: "{mpan}",
+    productCode: "{product_code}",
+    targetAgreementChangeDate: "{change_date}"
+  }})
+  {{
+    onboardingProcess {{
+      id
+    }}
+    productEnrolment {{
+      id
     }}
   }}
 }}"""

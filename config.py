@@ -7,8 +7,6 @@ ACC_NUMBER = os.getenv("ACC_NUMBER", "")
 BASE_URL = os.getenv("BASE_URL", "https://api.octopus.energy/v1")
 # Comma-separated list of Apprise notification URLs
 NOTIFICATION_URLS = os.getenv("NOTIFICATION_URLS", "")
-OCTOPUS_LOGIN_EMAIL = os.getenv("OCTOPUS_LOGIN_EMAIL", "")
-OCTOPUS_LOGIN_PASSWD = os.getenv("OCTOPUS_LOGIN_PASSWD", "")
 EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
 
 # List of tariff IDs to compare

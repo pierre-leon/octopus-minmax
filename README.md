@@ -10,7 +10,6 @@ I created this because I've been a long-time Agile customer who got tired of the
 I personally have this running automatically every day at 11 PM inside a Raspberry Pi Docker container, but you can run it wherever you want.  It sends notifications and updates to a variety of services via [Apprise](https://github.com/caronc/apprise), but that's not required for it to work.
 
 ## How to Use
-**Note**: This requires your email and password when using Playwright to log into your account. None of your data goes anywhere except to Octopus Energy.
 
 ### Requirements
 - An Octopus Energy Account  
@@ -32,8 +31,6 @@ docker run -d \
   --name MinMaxOctopusBot \
   -e ACC_NUMBER="<your_account_number>" \
   -e API_KEY="<your_api_key>" \
-  -e OCTOPUS_LOGIN_EMAIL="<your_email>" \
-  -e OCTOPUS_LOGIN_PASSWD="<your_password>" \
   -e EXECUTION_TIME="23:00" \
   -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
@@ -52,8 +49,6 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 |------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `ACC_NUMBER`           | Your Octopus Energy account number.                                                                                                                                                                                     |
 | `API_KEY`              | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
-| `OCTOPUS_LOGIN_EMAIL`  | The email associated with your Octopus Energy account.                                                                                                                                                                  |
-| `OCTOPUS_LOGIN_PASSWD` | The password for your Octopus Energy account.                                                                                                                                                                           |
 | `TARIFFS`              | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      | 
 | `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).                                                                                                                                 |
 | `NOTIFICATION_URLS`    | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
