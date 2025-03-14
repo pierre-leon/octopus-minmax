@@ -1,12 +1,11 @@
 import time
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import requests
 from apprise import Apprise
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
-#from playwright.sync_api import sync_playwright
 
 import config
 from account_info import AccountInfo
@@ -204,8 +203,7 @@ def get_token():
 
 
 def switch_tariff(target_product_code, mpan):
-    # Note that we must use tomorrow's date but the switch can (will) happen today
-    change_date = date.today() + timedelta(days=1)
+    change_date = date.today()
     query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
     result = gql_client.execute(query)
     return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
