@@ -1,12 +1,11 @@
 import time
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import requests
 from apprise import Apprise
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
-#from playwright.sync_api import sync_playwright
 
 import config
 from account_info import AccountInfo
@@ -204,8 +203,7 @@ def get_token():
 
 
 def switch_tariff(target_product_code, mpan):
-    # Note that we must use tomorrow's date but the switch can (will) happen today
-    change_date = date.today() + timedelta(days=1)
+    change_date = date.today()
     query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
     result = gql_client.execute(query)
     return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
@@ -215,9 +213,9 @@ def verify_new_agreement():
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     today = datetime.now().date()
-    valid_from = next(datetime.fromisoformat(agreement['validFrom']).date()
+    valid_from = next((datetime.fromisoformat(agreement['validFrom']).date()
                       for agreement in result['account']['electricityAgreements']
-                      if 'validFrom' in agreement)
+                      if 'validFrom' in agreement),None)
 
     # For some reason, sometimes the agreement has no end date, so I'm not sure if this bit is still relevant?
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
@@ -325,10 +323,16 @@ def compare_and_switch():
         accepted_version = accept_new_agreement(cheapest_tariff.product_code, enrolment_id)
         send_notification("Accepted agreement (v.{version}). Switch successful.".format(version=accepted_version))
 
-        if verify_new_agreement():
-            send_notification("Verified new agreement successfully. Process finished.")
-        else:
-            send_notification("Unable to accept new agreement. Please check your emails.")
+        verified = verify_new_agreement()
+        if not verified:
+            send_notification("Verification failed, waiting 20 seconds and trying again...")
+            time.sleep(20)
+            verified = verify_new_agreement()  # Retry
+            
+            if verified:
+                send_notification("Verified new agreement successfully. Process finished.")
+            else:
+                send_notification("Unable to verify new agreement after retry. Please check your account and emails.")
     else:
         send_notification(f"{summary}\nNot switching today.")
 
