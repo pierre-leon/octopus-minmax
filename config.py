@@ -1,5 +1,6 @@
 import os
 
+BOT_VERSION = "v0.6.0"
 # Add your stuff here
 API_KEY = os.getenv("API_KEY", "")
 # Your Octopus Energy account number. Starts with A-
