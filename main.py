@@ -18,12 +18,13 @@ gql_client: Client
 tariffs = []
 
 
-def send_notification(message, title="Octobot"):
+def send_notification(message, title="", error=False):
     """Sends a notification using Apprise.
 
     Args:
         message (str): The message to send.
-        title (str, optional): The title of the notification. Defaults to "Octobot".
+        title (str, optional): The title of the notification.
+        error (bool, optional): Whether the message is a stack trace. Defaults to False.
     """
     print(message)
 
@@ -37,12 +38,8 @@ def send_notification(message, title="Octobot"):
         print("No notification services configured. Check config.NOTIFICATION_URLS.")
         return
 
-    # Check if any of the URLs are Discord URLs, and only wrap the message in backticks if *only* Discord is present
-    urls = config.NOTIFICATION_URLS.split(',') if config.NOTIFICATION_URLS else []  # Get the URLs, handle None
-    is_only_discord = all("discord" in url.lower() for url in urls)
-
-    if is_only_discord:
-        message = f"`{message}`"
+    if error:
+        message = f"```py\n{message}\n```"
 
     apprise.notify(body=message, title=title)
 
@@ -231,7 +228,7 @@ def setup_gql(token):
 
 def compare_and_switch():
     welcome_message = "DRY RUN: " if config.DRY_RUN else ""
-    welcome_message += "Octobot on. Starting comparison of today's costs..."
+    welcome_message += "Starting comparison of today's costs..."
     send_notification(welcome_message)
 
     account_info = get_acc_info()
@@ -368,4 +365,4 @@ def run_tariff_compare():
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
-        send_notification(traceback.format_exc())
+        send_notification(message=traceback.format_exc(), title="Octobot Error", error=True)
