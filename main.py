@@ -292,10 +292,11 @@ def compare_and_switch():
     curr_cost = costs.get(current_tariff, float('inf'))
     cheapest_tariff = min(switchable_tariffs, key=switchable_tariffs.get)
     cheapest_cost = costs[cheapest_tariff]
+    cost_chart = create_tariff_comparison_chart(costs)
 
     if cheapest_tariff == current_tariff:
         send_notification(
-            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
+            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}", image_path=cost_chart)
         return
 
     savings = curr_cost - cheapest_cost
@@ -303,7 +304,7 @@ def compare_and_switch():
     # 2p buffer because cba
     if savings > 2:
         switch_message = f"{summary}\nInitiating Switch to {cheapest_tariff.display_name}"
-        send_notification(switch_message)
+        send_notification(switch_message, image_path=cost_chart)
 
         if config.DRY_RUN:
             dry_run_message = "DRY RUN: Not going through with switch today."
@@ -341,7 +342,7 @@ def compare_and_switch():
                 send_notification(f"Unable to verify new agreement after retry. Please check your account and emails.\n" \
                  f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages")
     else:
-        send_notification(f"{summary}\nNot switching today.")
+        send_notification(f"{summary}\nNot switching today.", image_path=cost_chart)
 
 
 def load_tariffs_from_ids(tariff_ids: str):
