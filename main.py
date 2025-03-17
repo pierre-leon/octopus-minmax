@@ -14,12 +14,16 @@ tariffs = []
 
 import matplotlib.pyplot as plt
 
-def create_tariff_comparison_chart(costs):
+def create_tariff_comparison_chart(costs_breakdown):
     plt.style.use('dark_background')
 
-    tariffs = list(costs.keys())
-    standing_charges = [cost.standing_charge / 100 for cost in costs.values()]
-    consumption_costs = [(cost.total_cost - cost.standing_charge) / 100 for cost in costs.values()]
+    tariffs = list(costs_breakdown.keys())
+    valid_tariffs = [t for t in tariffs if costs_breakdown[t] is not None]
+
+    standing_charges = [costs_breakdown[t]["standing_charge"] / 100 for t in valid_tariffs]
+    consumption_costs = [costs_breakdown[t]["consumption_cost"] / 100 for t in valid_tariffs]
+    total_costs = [costs_breakdown[t]["total_cost"] / 100 for t in valid_tariffs]
+
 
     fig, ax = plt.subplots(figsize=(8, 6))
     bars1 = ax.bar(tariffs, standing_charges, color='#9A3B3B')
@@ -31,7 +35,6 @@ def create_tariff_comparison_chart(costs):
         ax.text(bar1.get_x() + bar1.get_width() / 2, s_charge + c_cost / 2, f"£{c_cost:.2f}", ha='center', color='white')
 
     # Add total labels above each bar
-    total_costs = [sc + cc for sc, cc in zip(standing_charges, consumption_costs)]
     for bar1, total in zip(bars1, total_costs):
         ax.text(bar1.get_x() + bar1.get_width() / 2, total + 0.05, f"£{total:.2f}", ha='center', color='white')
 
@@ -260,6 +263,13 @@ def compare_and_switch():
     # Track costs key: Tariff, value: total cost in pence
     # Add current tariff
     costs = {current_tariff: total_curr_cost}
+        # Track costs in detail key: tarrif display name, values: total cost, standing charge, consumption cost
+    costs_breakdown = {}
+    costs_breakdown[current_tariff.display_name] = {
+        "total_cost": total_curr_cost,
+        "standing_charge": account_info.standing_charge,
+        "consumption_cost": total_con_cost
+    }
 
     # Calculate costs of other tariffs
     for tariff in tariffs:
@@ -276,6 +286,11 @@ def compare_and_switch():
             total_tariff_cost = total_tariff_consumption_cost + potential_std_charge
 
             costs[tariff] = total_tariff_cost
+            costs_breakdown[tariff.display_name]= {
+                "total_cost": total_tariff_cost,
+                "standing_charge": potential_std_charge,
+                "consumption_cost": total_tariff_consumption_cost
+            }
             summary += f"Potential cost on {tariff.display_name}: £{total_tariff_cost / 100:.2f} " \
                        f"(£{total_tariff_consumption_cost / 100:.2f} con + " \
                        f"£{potential_std_charge / 100:.2f} s/c)\n"
@@ -284,6 +299,7 @@ def compare_and_switch():
             print(f"Error finding prices for tariff: {tariff.id}. {e}")
             summary += f"No cost for {tariff.display_name}\n"
             costs[tariff] = None
+            costs_breakdown[tariff.dispaly_name] = None
 
     # Filter the dictionary to only include tariffs where the `switchable` attribute is True
     switchable_tariffs = {t: cost for t, cost in costs.items() if t.switchable and cost is not None}
@@ -292,7 +308,7 @@ def compare_and_switch():
     curr_cost = costs.get(current_tariff, float('inf'))
     cheapest_tariff = min(switchable_tariffs, key=switchable_tariffs.get)
     cheapest_cost = costs[cheapest_tariff]
-    cost_chart = create_tariff_comparison_chart(costs)
+    cost_chart = create_tariff_comparison_chart(costs_breakdown)
 
     if cheapest_tariff == current_tariff:
         send_notification(
