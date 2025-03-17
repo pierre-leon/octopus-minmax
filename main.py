@@ -12,19 +12,22 @@ from account_info import AccountInfo
 from queries import *
 from tariff import TARIFFS
 
+import matplotlib.pyplot as plt
+
 gql_transport: AIOHTTPTransport
 gql_client: Client
 
 tariffs = []
 
 
-def send_notification(message, title="", error=False):
+def send_notification(message, title="", error=False, image_path=None):
     """Sends a notification using Apprise.
 
     Args:
         message (str): The message to send.
         title (str, optional): The title of the notification.
         error (bool, optional): Whether the message is a stack trace. Defaults to False.
+        image_path (str, optional): path to image
     """
     print(message)
 
@@ -41,7 +44,48 @@ def send_notification(message, title="", error=False):
     if error:
         message = f"```py\n{message}\n```"
 
-    apprise.notify(body=message, title=title)
+    if image_path:
+        apprise.notify(body=message, title=title, attach=image_path)
+    else:
+        apprise.notify(body=message, title=title)
+
+def create_tariff_comparison_chart(costs):
+    plt.style.use('dark_background')
+
+    tariffs = list(costs.keys())
+    standing_charges = [cost.standing_charge / 100 for cost in costs.values()]
+    consumption_costs = [(cost.total_cost - cost.standing_charge) / 100 for cost in costs.values()]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars1 = ax.bar(tariffs, standing_charges, color='#9A3B3B')
+    bars2 = ax.bar(tariffs, consumption_costs, bottom=standing_charges, color='#632626')
+
+    # Add labels for standing and consumption costs
+    for bar1, bar2, s_charge, c_cost in zip(bars1, bars2, standing_charges, consumption_costs):
+        ax.text(bar1.get_x() + bar1.get_width() / 2, s_charge / 2, f"£{s_charge:.2f}", ha='center', color='white')
+        ax.text(bar1.get_x() + bar1.get_width() / 2, s_charge + c_cost / 2, f"£{c_cost:.2f}", ha='center', color='white')
+
+    # Add total labels above each bar
+    total_costs = [sc + cc for sc, cc in zip(standing_charges, consumption_costs)]
+    for bar1, total in zip(bars1, total_costs):
+        ax.text(bar1.get_x() + bar1.get_width() / 2, total + 0.05, f"£{total:.2f}", ha='center', color='white')
+
+    ax.set_ylabel('Cost (£)', color='white')
+    ax.set_title('Energy Tariff Comparison', color='white')
+    plt.xticks(rotation=45, ha='right', color='white')
+    plt.yticks(color='white')
+
+    # Remove grid and legend
+    ax.grid(False, axis='x')
+
+    plt.tight_layout()
+
+    # Save the graph to a file
+    image_path = "/tmp/tariff_comparison.png"
+    plt.savefig(image_path)
+    plt.close()
+
+    return image_path
 
 # The version of the terms and conditions is required to accept the new tariff
 def get_terms_version(product_code):
@@ -283,10 +327,11 @@ def compare_and_switch():
     curr_cost = costs.get(current_tariff, float('inf'))
     cheapest_tariff = min(switchable_tariffs, key=switchable_tariffs.get)
     cheapest_cost = costs[cheapest_tariff]
+    cost_chart = create_tariff_comparison_chart(costs)
 
     if cheapest_tariff == current_tariff:
         send_notification(
-            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
+            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}", image_path=cost_chart)
         return
 
     savings = curr_cost - cheapest_cost
@@ -294,7 +339,7 @@ def compare_and_switch():
     # 2p buffer because cba
     if savings > 2:
         switch_message = f"{summary}\nInitiating Switch to {cheapest_tariff.display_name}"
-        send_notification(switch_message)
+        send_notification(switch_message, image_path=cost_chart)
 
         if config.DRY_RUN:
             dry_run_message = "DRY RUN: Not going through with switch today."
@@ -332,7 +377,7 @@ def compare_and_switch():
                 send_notification(f"Unable to verify new agreement after retry. Please check your account and emails.\n" \
                  f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages")
     else:
-        send_notification(f"{summary}\nNot switching today.")
+        send_notification(f"{summary}\nNot switching today.", image_path=cost_chart)
 
 
 def load_tariffs_from_ids(tariff_ids: str):
