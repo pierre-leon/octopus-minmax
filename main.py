@@ -12,6 +12,8 @@ from notification import send_notification, send_batch_notification
 from queries import *
 from tariff import TARIFFS
 
+import matplotlib.pyplot as plt
+
 gql_transport: AIOHTTPTransport
 gql_client: Client
 
@@ -22,6 +24,73 @@ headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
         "Accept": "*/*"
 }
+
+def send_notification(message, title="", error=False, image_path=None):
+    """Sends a notification using Apprise.
+
+    Args:
+        message (str): The message to send.
+        title (str, optional): The title of the notification.
+        error (bool, optional): Whether the message is a stack trace. Defaults to False.
+        image_path (str, optional): path to image
+    """
+    print(message)
+
+    apprise = Apprise()
+
+    if config.NOTIFICATION_URLS:
+        for url in config.NOTIFICATION_URLS.split(','):
+            apprise.add(url.strip())
+
+    if not apprise:
+        print("No notification services configured. Check config.NOTIFICATION_URLS.")
+        return
+
+    if error:
+        message = f"```py\n{message}\n```"
+
+    if image_path:
+        apprise.notify(body=message, title=title, attach=image_path)
+    else:
+        apprise.notify(body=message, title=title)
+
+def create_tariff_comparison_chart(costs):
+    plt.style.use('dark_background')
+
+    tariffs = list(costs.keys())
+    standing_charges = [cost.standing_charge / 100 for cost in costs.values()]
+    consumption_costs = [(cost.total_cost - cost.standing_charge) / 100 for cost in costs.values()]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars1 = ax.bar(tariffs, standing_charges, color='#9A3B3B')
+    bars2 = ax.bar(tariffs, consumption_costs, bottom=standing_charges, color='#632626')
+
+    # Add labels for standing and consumption costs
+    for bar1, bar2, s_charge, c_cost in zip(bars1, bars2, standing_charges, consumption_costs):
+        ax.text(bar1.get_x() + bar1.get_width() / 2, s_charge / 2, f"£{s_charge:.2f}", ha='center', color='white')
+        ax.text(bar1.get_x() + bar1.get_width() / 2, s_charge + c_cost / 2, f"£{c_cost:.2f}", ha='center', color='white')
+
+    # Add total labels above each bar
+    total_costs = [sc + cc for sc, cc in zip(standing_charges, consumption_costs)]
+    for bar1, total in zip(bars1, total_costs):
+        ax.text(bar1.get_x() + bar1.get_width() / 2, total + 0.05, f"£{total:.2f}", ha='center', color='white')
+
+    ax.set_ylabel('Cost (£)', color='white')
+    ax.set_title('Energy Tariff Comparison', color='white')
+    plt.xticks(rotation=45, ha='right', color='white')
+    plt.yticks(color='white')
+
+    # Remove grid and legend
+    ax.grid(False, axis='x')
+
+    plt.tight_layout()
+
+    # Save the graph to a file
+    image_path = "/tmp/tariff_comparison.png"
+    plt.savefig(image_path)
+    plt.close()
+
+    return image_path
 
 # The version of the terms and conditions is required to accept the new tariff
 def get_terms_version(product_code):
