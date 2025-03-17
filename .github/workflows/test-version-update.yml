@@ -1,0 +1,48 @@
+name: Test Version Update on Release
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  test-version-update:
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Inspect the original config.py file
+      - name: Show original config.py content
+        run: |
+          echo "Original config.py content:"
+          cat config.py
+
+      # Update version in config.py
+      - name: Update version in config.py
+        run: |
+          # Extract version from tag
+          VERSION="${{ github.event.release.tag_name }}"
+          
+          # Update the BOT_VERSION in config.py 
+          sed -i "s/BOT_VERSION = \".*\"/BOT_VERSION = \"$VERSION\"/" config.py
+          
+          echo "Updated config.py content:"
+          cat config.py
+          
+          echo "Build and push Docker image with tags:"
+          echo "yourdockerimage:latest"
+          echo "yourdockerimage:$VERSION"
+          
+          # Save the files for later reference
+          mkdir -p /tmp/version-update-test
+          cp config.py /tmp/version-update-test/config.py.updated
+          
+      # Save the files as artifacts
+      - name: Save files as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: config-files
+          path: /tmp/version-update-test/
+          retention-days: 5
