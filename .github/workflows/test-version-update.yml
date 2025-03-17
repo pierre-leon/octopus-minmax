@@ -41,7 +41,7 @@ jobs:
           
       # Save the files as artifacts
       - name: Save files as artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: config-files
           path: /tmp/version-update-test/
