@@ -3,3 +3,4 @@ Requests==2.32.3
 aiohttp==3.11.11
 apprise==1.9.2
 matplotlib==3.10.1
+numpy==2.2.4
