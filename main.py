@@ -74,7 +74,6 @@ def create_tariff_comparison_chart(costs_breakdown):
         ax.text(bar1.get_x() + bar1.get_width() / 2, total + 0.05, f"£{total:.2f}", ha='center', color='white')
 
     ax.set_ylabel('Cost (£)', color='white')
-    ax.set_title('Energy Tariff Comparison', color='white')
     plt.xticks(rotation=45, ha='right', color='white')
     plt.yticks(color='white')
 
