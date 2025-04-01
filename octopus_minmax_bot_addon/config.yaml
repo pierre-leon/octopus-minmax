@@ -13,20 +13,22 @@ arch:
   - amd64
   - aarch64
 options:
+  api_key: "API KEY HERE"
+  acc_number: "ACC NUMBER HERE"
+  execution_time: "23:00"
   one_off: false
   dry_run: false
   notification_urls: ""
-  execution_time: "23:00"
-  api_key: "API KEY HERE"
-  acc_number: "ACC NUMBER HERE"
   tariffs: "agile,go,flexible"
   tz: "Europe/London"
+  pythonunbuffered: 1
 schema:
+  api_key: str
+  acc_number: str
+  execution_time: str
   one_off: bool
   dry_run: bool
   notification_urls: str
-  execution_time: str
-  api_key: str
-  acc_number: str
   tariffs: str
   tz: str
+  pythonunbuffered: int
