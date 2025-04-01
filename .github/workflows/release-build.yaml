@@ -52,3 +52,54 @@ jobs:
           tags: |
             ${{ env.DOCKER_IMAGE }}:latest
             ${{ env.DOCKER_IMAGE }}:${{ github.event.release.tag_name }}
+  update-addon:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      # Step 2: Get the version tag from the release
+      - name: Get version tag from the release
+        id: version
+        run: echo "::set-output name=version::${GITHUB_REF##*/}"
+
+      # Step 3: Create a new branch for the changes
+      - name: Create a new branch
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git checkout -b "update-addon-config-${VERSION}"
+
+      # Step 4: Update version in config.yaml
+      - name: Update version in config.yaml
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/version: .*/version: ${VERSION}/" octopus_minmax_bot_addon/config.yaml
+
+      # Step 5: Copy README.md to octopus_minmax_bot_addon
+      - name: Copy README.md to octopus_minmax_bot_addon
+        run: cp README.md octopus_minmax_bot_addon/README.md
+
+      # Step 6: Add release notes to CHANGELOG.md
+      - name: Add release notes to CHANGELOG.md
+        run: |
+          RELEASE_NOTES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.version.outputs.version }}" | jq -r '.body')
+          echo -e "## ${GITHUB_REF##*/}\n\n${RELEASE_NOTES}\n" | cat - octopus_minmax_bot_addon/CHANGELOG.md > temp && mv temp octopus_minmax_bot_addon/CHANGELOG.md
+
+      # Step 7: Commit the changes
+      - name: Commit changes
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Update Addon Configuration to ${{ steps.version.outputs.version }}"
+          git push origin "update-addon-config-${{ steps.version.outputs.version }}"
+
+      # Step 8: Create Pull Request
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v3
+        with:
+          title: "Update Addon Configuration to ${{ steps.version.outputs.version }}"
+          body: "This PR updates the addon configuration to the tagged release version and includes changes to README and CHANGELOG."
+          base: main  # Adjust if your default branch is different
+          head: ${{ github.actor }}:update-addon-config-${{ steps.version.outputs.version }}
