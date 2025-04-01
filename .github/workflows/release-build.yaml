@@ -78,7 +78,7 @@ jobs:
         run: |
           RELEASE_NOTES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.VERSION }}" | jq -r '.body')
           RELEASE_TITLE=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.VERSION }}" | jq -r '.name')
-          echo -e "## ${RELEASE_TITLE} - ${RELEASE_NOTES}\n" | cat - octopus_minmax_bot_addon/CHANGELOG.md > temp && mv temp octopus_minmax_bot_addon/CHANGELOG.md
+          echo -e "## ${{ env.VERSION }} - ${RELEASE_TITLE}\n${RELEASE_NOTES}\n" | cat - octopus_minmax_bot_addon/CHANGELOG.md > temp && mv temp octopus_minmax_bot_addon/CHANGELOG.md
 
       # Step 6: Create Pull Request (with explicit branch reference)
       - name: Create Pull Request
