@@ -82,7 +82,8 @@ jobs:
       - name: Add release notes to CHANGELOG.md
         run: |
           RELEASE_NOTES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.VERSION }}" | jq -r '.body')
-          echo -e "## ${GITHUB_REF##*/}\n\n${RELEASE_NOTES}\n" | cat - octopus_minmax_bot_addon/CHANGELOG.md > temp && mv temp octopus_minmax_bot_addon/CHANGELOG.md
+          RELEASE_TITLE=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ env.VERSION }}" | jq -r '.name')
+          echo -e "## ${RELEASE_TITLE} - ${RELEASE_NOTES}\n" | cat - octopus_minmax_bot_addon/CHANGELOG.md > temp && mv temp octopus_minmax_bot_addon/CHANGELOG.md
 
       # Step 7: Commit the changes
       - name: Commit changes
@@ -100,5 +101,5 @@ jobs:
           title: "Update Addon Configuration to ${{ env.VERSION }}"
           body: "This PR updates the addon configuration to the tagged release version and includes changes to README and CHANGELOG."
           base: main  # Change this if you are using a different base branch
-          head: update-addon-config-${{ env.VERSION }}
+          branch: update-addon-config-${{ env.VERSION }}
           token: ${{ secrets.GITHUB_TOKEN }}  # Ensure the GITHUB_TOKEN is passed
