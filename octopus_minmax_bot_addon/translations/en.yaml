@@ -1,26 +1,26 @@
 ---
 configuration:
-  one_off:
+  ONE_OFF:
     name: One Off Execution
     description: Run the comparison ONCE then quit.
-  notification_urls:
+  NOTIFICATION_URLS:
     name: Notification URLs
     description: URLs to send notifications to. Using Apprise.
-  execution_time:
+  EXECUTION_TIME:
     name: Execution Time
     description: When not One Off. This is the time to execute comparison.
-  api_key:
+  API_KEY:
     name: API Key
     description: Octopus API Key
-  acc_number:
+  ACC_NUMBER:
     name: Account Number
     description: Enter Octopus Account Number
-  dry_run:
+  DRY_RUN:
     name: Dry Run
     description: Compare tariffs but don't initiate any switches.
-  tariffs:
+  TARIFFS:
     name: Tariffs
     description: Tariffs you want to compare with. See README.md for options.
-  tz:
+  TZ:
     name: Timezone
     description: Timezone for container

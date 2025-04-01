@@ -14,30 +14,20 @@ arch:
   - amd64
   - aarch64
 options:
-  api_key: "API KEY HERE"
-  acc_number: "ACC NUMBER HERE"
-  execution_time: "23:00"
-  one_off: false
-  dry_run: false
-  notification_urls: ""
-  tariffs: "agile,go,flexible"
-  tz: "Europe/London"
+  API_KEY: "API KEY HERE"
+  ACC_NUMBER: "ACC NUMBER HERE"
+  EXECUTION_TIME: "23:00"
+  ONE_OFF: false
+  DRY_RUN: false
+  NOTIFICATION_URLS: ""
+  TARIFFS: "agile,go,flexible"
+  TZ: "Europe/London"
 schema:
-  api_key: str
-  acc_number: str
-  execution_time: str
-  one_off: bool
-  dry_run: bool
-  notification_urls: str
-  tariffs: str
-  tz: str
-environment:
-  API_KEY: "{api_key}"
-  ACC_NUMBER: "{acc_number}"
-  EXECUTION_TIME: "{execution_time}"
-  ONE_OFF: "{one_off}"
-  DRY_RUN: "{dry_run}"
-  NOTIFICATION_URLS: "{notification_urls}"
-  TARIFFS: "{tariffs}"
-  TZ: "{tz}"
-  PYTHONUNBUFFERED: "1"
+  API_KEY: str
+  ACC_NUMBER: str
+  EXECUTION_TIME: str
+  ONE_OFF: bool
+  DRY_RUN: bool
+  NOTIFICATION_URLS: str
+  TARIFFS: str
+  TZ: str
