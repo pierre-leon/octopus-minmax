@@ -1,187 +1,179 @@
-import os
-
-from playwright.sync_api import sync_playwright
-import requests
-from datetime import datetime, date
-from gql import gql, Client
-from gql.transport.aiohttp import AIOHTTPTransport
 import time
 import traceback
+from datetime import date, datetime
+
+import requests
+from apprise import Apprise
+from gql import Client, gql
+from gql.transport.aiohttp import AIOHTTPTransport
+
 import config
+from account_info import AccountInfo
+from queries import *
+from tariff import TARIFFS
 
-gql_transport = None
-gql_client = None
-opposite_tariff = {
-    "AGILE": "GO",
-    "GO": "AGILE"
-}
+gql_transport: AIOHTTPTransport
+gql_client: Client
 
-token_query = """mutation {{
-	obtainKrakenToken(input: {{ APIKey: "{api_key}" }}) {{
-	    token
-	}}
-}}"""
-
-# I have no idea if versionMajor or versionMinor has an impact???
-accept_terms_query = """mutation {{
-    acceptTermsAndConditions(input: {{
-        accountNumber: "{account_number}",
-        enrolmentId: "{enrolment_id}",
-        termsVersion: {{
-            versionMajor: 1,
-            versionMinor: 1
-        }}
-    }}) 
-    {{
-    acceptedVersion
-  }}
-}}"""
-
-consumption_query = """query {{
-    smartMeterTelemetry(
-        deviceId: "{device_id}"
-        grouping: HALF_HOURLY
-        start: "{start_date}"
-        end: "{end_date}"
-    ) {{
-    readAt
-    consumptionDelta
-    costDeltaWithTax
-  }}
-}}"""
-
-account_query = """query{{
-    account(
-        accountNumber: "{acc_number}"
-    ) {{
-    electricityAgreements(active: true) {{
-        validFrom
-        validTo
-        meterPoint {{
-            meters(includeInactive: false) {{
-                smartDevices {{
-                    deviceId
-                }}
-            }}
-            mpan
-        }}
-        tariff {{
-            ... on HalfHourlyTariff {{
-                id
-                productCode
-                tariffCode
-                productCode
-                standingCharge
-                }}
-            }}
-        }}
-    }}
-}}"""
-enrolment_query = """query {{
-    productEnrolments(accountNumber: "{acc_number}") {{
-        id
-        status
-        product {{
-            code
-            displayName
-        }}
-    stages {{
-      name
-      status
-      steps {{
-        displayName
-        status
-        updatedAt
-      }}
-    }}
-  }}
-}}"""
+tariffs = []
 
 
-def send_discord_message(content):
-    print(content)
-    if config.DISCORD_WEBHOOK is not None:
-        content = f"`{content}`"
-        data = {
-            "content": content
-        }
-        requests.post(config.DISCORD_WEBHOOK, json=data)
+def send_notification(message, title="", error=False):
+    """Sends a notification using Apprise.
 
+    Args:
+        message (str): The message to send.
+        title (str, optional): The title of the notification.
+        error (bool, optional): Whether the message is a stack trace. Defaults to False.
+    """
+    print(message)
 
-def accept_new_agreement():
-    query = gql(enrolment_query.format(acc_number=config.ACC_NUMBER))
+    apprise = Apprise()
+
+    if config.NOTIFICATION_URLS:
+        for url in config.NOTIFICATION_URLS.split(','):
+            apprise.add(url.strip())
+
+    if not apprise:
+        print("No notification services configured. Check config.NOTIFICATION_URLS.")
+        return
+
+    if error:
+        message = f"```py\n{message}\n```"
+
+    apprise.notify(body=message, title=title)
+
+# The version of the terms and conditions is required to accept the new tariff
+def get_terms_version(product_code):
+    query = gql(get_terms_version_query.format(product_code=product_code))
     result = gql_client.execute(query)
-    try:
-        enrolment_id = next(entry['id'] for entry in result['productEnrolments'] if entry['status'] == "IN_PROGRESS")
-    except StopIteration:
-        # Strangely sometimes the enrolment skips 'IN_PROGRESS' and just auto-accepts, so we check if it's completed with today's date
-        today = datetime.now().date()
+    terms_version = result.get('termsAndConditionsForProduct', {}).get('version', "1.0").split('.')
 
-        for entry in result['productEnrolments']:
-            for stage in entry['stages']:
-                if stage['name'] == 'post-enrolment':
-                    last_step_date = datetime.fromisoformat(
-                        stage['steps'][-1]['updatedAt'].replace('Z', '+00:00')).date()
-                    if last_step_date == today and stage['status'] == 'COMPLETED':
-                        send_discord_message("Post-enrolment automatically completed with today's date.")
-                        return
+    return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
 
-        raise Exception("ERROR: No completed post-enrolment found today and no in-progress enrolment.")
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, enrolment_id=enrolment_id))
+def accept_new_agreement(product_code, enrolment_id):
+    # get terms and conditions version
+    version = get_terms_version(product_code)
+    # accept terms and conditions
+    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+                                          enrolment_id=enrolment_id,
+                                          version_major=version['major'],
+                                          version_minor=version['minor']))
     result = gql_client.execute(query)
+    return result.get('acceptTermsAndConditions', {}).get('acceptedVersion', "unknown version")
 
 
-def get_acc_info():
+
+def get_acc_info() -> AccountInfo:
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
 
-    tariff_code = next(agreement['tariff']['tariffCode']
-                       for agreement in result['account']['electricityAgreements']
-                       if 'tariffCode' in agreement['tariff'])
-    region_code = tariff_code[-1]
-    device_id = next(device['deviceId']
-                     for agreement in result['account']['electricityAgreements']
-                     for meter in agreement['meterPoint']['meters']
-                     for device in meter['smartDevices']
-                     if 'deviceId' in device)
-    curr_stdn_charge = next(agreement['tariff']['standingCharge']
-                            for agreement in result['account']['electricityAgreements']
-                            if 'standingCharge' in agreement['tariff'])
+    import_agreement = None
+    for agreement in result.get("account", {}).get("electricityAgreements", []):
+        meter_point = agreement.get("meterPoint", {})
+        if meter_point.get("direction") == "IMPORT":
+            import_agreement = agreement
+            break
+    
+    if not import_agreement:
+        raise Exception("ERROR: No IMPORT meter point found in account data")
 
-    if "GO" in tariff_code:
-        current_tariff = "GO"
-    elif "AGILE" in tariff_code:
-        current_tariff = "AGILE"
-    else:
-        raise Exception(f"ERROR: Unknown tariff code: {tariff_code}")
+    tariff = import_agreement.get("tariff")
+    if not tariff:
+        raise Exception("ERROR: No tariff information found for the IMPORT meter")
+    
+    tariff_code = tariff.get("tariffCode")
+    if not tariff_code:
+        raise Exception("ERROR: No tariff code found for the IMPORT  tariff")
+    
+    curr_stdn_charge = tariff.get("standingCharge")
+    if not curr_stdn_charge:
+        raise Exception("ERROR: No standing charge found for the IMPORT meter tariff")
+    
+    region_code = tariff_code[-1]
+    mpan = import_agreement.get("meterPoint", {}).get("mpan")
+    if not mpan:
+        raise Exception("ERROR: No MPAN found for the IMPORT meter")
+
+    device_id = None
+    meter_point = import_agreement.get("meterPoint", {})
+    for meter in meter_point.get("meters", []):
+        for device in meter.get("smartDevices", []):
+            if "deviceId" in device:
+                device_id = device["deviceId"]
+                break
+        if device_id:
+            break
+    
+    if not device_id:
+        raise Exception("ERROR: No device ID found for the IMPORT meter")
+    
+    matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
+    if matching_tariff is None:
+        raise Exception(f"ERROR: Found no supported tariff for {tariff_code}")
 
     # Get consumption for today
     result = gql_client.execute(
-        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:30:00Z",
+        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:00:00Z",
                                      end_date=f"{date.today()}T23:59:59Z")))
     consumption = result['smartMeterTelemetry']
 
-    return current_tariff, curr_stdn_charge, region_code, consumption
+    return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption, mpan)
 
 
 def get_potential_tariff_rates(tariff, region_code):
-    all_products = rest_query(f"{config.BASE_URL}/products")
-    tariff_code = next(
-        product["code"] for product in all_products['results']
-        if product['display_name'] == ("Agile Octopus" if tariff == "AGILE" else "Octopus Go")
-        and product['direction'] == "IMPORT"
-        and product['brand'] == "OCTOPUS_ENERGY"
-    )
-    # Residential tariffs are always E-1R (i think, lol)    
-    product_code = f"E-1R-{tariff_code}-{region_code}"
+    all_products = rest_query(f"{config.BASE_URL}/products/?brand=OCTOPUS_ENERGY&is_business=false")
+    product = next((
+        product for product in all_products['results']
+        if product['display_name'] == tariff
+           and product['direction'] == "IMPORT"
+    ), None)
 
+    product_code = product.get('code')
+
+    if product_code is None:
+        raise ValueError(f"No matching tariff found for {tariff}")
+
+    # Use the self links to navigate to the tariff details
+    product_link = next((
+        item.get('href') for item in product.get('links', [])
+        if item.get('rel', '').lower() == 'self'
+    ), None)
+
+    if not product_link:
+        raise ValueError(f"Self link not found for tariff {product_code}.")
+
+    tariff_details = rest_query(product_link)
+
+    # Get the standing charge including VAT
+    region_code_key = f'_{region_code}'
+    filtered_region = tariff_details.get('single_register_electricity_tariffs', {}).get(region_code_key)
+
+    if filtered_region is None:
+        raise ValueError(f"Region code not found {region_code_key}.")
+
+    region_tariffs = filtered_region.get('direct_debit_monthly') or filtered_region.get('varying')
+    standing_charge_inc_vat = region_tariffs.get('standing_charge_inc_vat')
+
+    if standing_charge_inc_vat is None:
+        raise ValueError(f"Standing charge including VAT not found for region {region_code_key}.")
+
+    # Find the link for standard unit rates
+    region_links = region_tariffs.get('links', [])
+    unit_rates_link = next((
+        item.get('href') for item in region_links
+        if item.get('rel', '').lower() == 'standard_unit_rates'
+    ), None)
+
+    if not unit_rates_link:
+        raise ValueError(f"Standard unit rates link not found for region: {region_code_key}")
+
+    # Get today's rates
     today = date.today()
-    unit_rates = rest_query(
-        f"{config.BASE_URL}/products/{tariff_code}/electricity-tariffs/{product_code}/standard-unit-rates/?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z")
-    standing_charge = rest_query(
-        f"{config.BASE_URL}/products/{tariff_code}/electricity-tariffs/{product_code}/standing-charges/")
+    unit_rates_link_with_time = f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z"
+    unit_rates = rest_query(unit_rates_link_with_time)
 
-    return standing_charge['results'][0]['value_inc_vat'], unit_rates['results']
+    return standing_charge_inc_vat, unit_rates.get('results', []), product_code
 
 
 def rest_query(url):
@@ -199,7 +191,10 @@ def calculate_potential_costs(consumption_data, rate_data):
         read_time = consumption['readAt'].replace('+00:00', 'Z')
         matching_rate = next(
             rate for rate in rate_data
-            if rate['valid_from'] < read_time <= rate['valid_to']
+            # Flexible has no end time, so default to the end of time
+            if rate['valid_from'] <= read_time <= (rate.get('valid_to') or "9999-12-31T23:59:59Z")
+            # DIRECT_DEBIT is for flexible that has different price for direct debit or not
+            and rate['payment_method'] in [None, "DIRECT_DEBIT"]
         )
 
         consumption_kwh = float(consumption['consumptionDelta']) / 1000
@@ -222,50 +217,22 @@ def get_token():
     return result['obtainKrakenToken']['token']
 
 
-def switch_tariff(target_tariff):
-    with sync_playwright() as playwright:
-        browser = None
-        try:
-            browser = playwright.chromium.launch(
-                headless=True)
-        except Exception as e:
-            print(e)  # Should print out if its not working
-        context = browser.new_context(viewport={"width": 1920, "height": 1080})
-        page = context.new_page()
-        page.goto("https://octopus.energy/")
-        page.wait_for_timeout(1000)
-        page.get_by_label("Log in to my account").click()
-        page.wait_for_timeout(1000)
-        page.get_by_placeholder("Email address").click()
-        page.wait_for_timeout(1000)
-        # replace w env
-        page.get_by_placeholder("Email address").fill(config.OCTOPUS_LOGIN_EMAIL)
-        page.wait_for_timeout(1000)
-        page.get_by_placeholder("Email address").press("Tab")
-        page.wait_for_timeout(1000)
-        page.get_by_placeholder("Password").fill(config.OCTOPUS_LOGIN_PASSWD)
-        page.wait_for_timeout(1000)
-        page.get_by_placeholder("Password").press("Enter")
-        page.wait_for_timeout(1000)
-        # replace with env
-        page.goto(f"https://octopus.energy/smart/{target_tariff.lower()}/sign-up/?accountNumber={config.ACC_NUMBER}")
-        page.wait_for_timeout(10000)
-        page.locator("section").filter(has_text="Already have a SMETS2 or “").get_by_role("button").click()
-        page.wait_for_timeout(10000)
-        # check if url has success
-        context.close()
-        browser.close()
+def switch_tariff(target_product_code, mpan):
+    change_date = date.today()
+    query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
+    result = gql_client.execute(query)
+    return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
 
 
 def verify_new_agreement():
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     today = datetime.now().date()
-    valid_from = next(datetime.fromisoformat(agreement['validFrom']).date()
+    valid_from = next((datetime.fromisoformat(agreement['validFrom']).date()
                       for agreement in result['account']['electricityAgreements']
-                      if 'validFrom' in agreement)
+                      if 'validFrom' in agreement),None)
 
-    # For some reason, sometimes the agreement has no end date so I'm not not sure if this bit is still relevant?
+    # For some reason, sometimes the agreement has no end date, so I'm not sure if this bit is still relevant?
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
     # next_year = valid_from.replace(year=valid_from.year + 1)
     return valid_from == today
@@ -278,41 +245,143 @@ def setup_gql(token):
 
 
 def compare_and_switch():
-    send_discord_message("Octobot on. Starting comparison of today's costs...")
-    (curr_tariff, curr_stdn_charge, region_code, consumption) = get_acc_info()
-    total_curr_cost = sum(float(entry['costDeltaWithTax']) for entry in consumption) + curr_stdn_charge
+    welcome_message = "DRY RUN: " if config.DRY_RUN else ""
+    welcome_message += "Starting comparison of today's costs..."
+    send_notification(welcome_message)
 
-    (potential_std_charge, potential_unit_rates) = get_potential_tariff_rates(opposite_tariff[curr_tariff], region_code)
+    account_info = get_acc_info()
+    current_tariff = account_info.current_tariff
 
-    potential_costs = calculate_potential_costs(consumption, potential_unit_rates)
+    # Total consumption cost
+    total_con_cost = sum(float(entry['costDeltaWithTax'] or 0) for entry in account_info.consumption)
+    total_curr_cost = total_con_cost + account_info.standing_charge
 
-    total_potential_calculated = sum(period['calculated_cost'] for period in potential_costs) + potential_std_charge
-    summary = "Total potential cost: £{:.2f} vs current cost: £{:.2f}".format(total_potential_calculated / 100,
-                                                                              total_curr_cost / 100)
+    # Total consumption
+    total_wh = sum(float(consumption['consumptionDelta']) for consumption in account_info.consumption)
+    total_kwh = total_wh / 1000  # Convert watt-hours to kilowatt-hours
+
+    # Print out consumption on current tariff
+    summary = f"Total Consumption today: {total_kwh:.4f} kWh\n"
+    summary += f"Current tariff {current_tariff.display_name}: £{total_curr_cost / 100:.2f} " \
+               f"(£{total_con_cost / 100:.2f} con + " \
+               f"£{account_info.standing_charge / 100:.2f} s/c)\n"
+
+    # Track costs key: Tariff, value: total cost in pence
+    # Add current tariff
+    costs = {current_tariff: total_curr_cost}
+
+    # Calculate costs of other tariffs
+    for tariff in tariffs:
+        if tariff == current_tariff:
+            continue  # Skip if you're already on that tariff
+
+        try:
+            (potential_std_charge, potential_unit_rates, potential_product_code) = \
+                get_potential_tariff_rates(tariff.api_display_name, account_info.region_code)
+            tariff.product_code = potential_product_code
+            potential_costs = calculate_potential_costs(account_info.consumption, potential_unit_rates)
+
+            total_tariff_consumption_cost = sum(period['calculated_cost'] for period in potential_costs)
+            total_tariff_cost = total_tariff_consumption_cost + potential_std_charge
+
+            costs[tariff] = total_tariff_cost
+            summary += f"Potential cost on {tariff.display_name}: £{total_tariff_cost / 100:.2f} " \
+                       f"(£{total_tariff_consumption_cost / 100:.2f} con + " \
+                       f"£{potential_std_charge / 100:.2f} s/c)\n"
+
+        except Exception as e:
+            print(f"Error finding prices for tariff: {tariff.id}. {e}")
+            summary += f"No cost for {tariff.display_name}\n"
+            costs[tariff] = None
+
+    # Filter the dictionary to only include tariffs where the `switchable` attribute is True
+    switchable_tariffs = {t: cost for t, cost in costs.items() if t.switchable and cost is not None}
+
+    # Find the cheapest tariffs that is in the list and switchable
+    curr_cost = costs.get(current_tariff, float('inf'))
+    cheapest_tariff = min(switchable_tariffs, key=switchable_tariffs.get)
+    cheapest_cost = costs[cheapest_tariff]
+
+    if cheapest_tariff == current_tariff:
+        send_notification(
+            f"{summary}\nYou are already on the cheapest tariff: {cheapest_tariff.display_name} at £{cheapest_cost / 100:.2f}")
+        return
+
+    savings = curr_cost - cheapest_cost
+
     # 2p buffer because cba
-    if (total_potential_calculated + 2) < total_curr_cost:
-        send_discord_message(summary + "\nInitiating Switch to " + opposite_tariff[curr_tariff])
-        switch_tariff(opposite_tariff[curr_tariff])
-        send_discord_message("Tariff switch requested successfully.")
+    if savings > 2:
+        switch_message = f"{summary}\nInitiating Switch to {cheapest_tariff.display_name}"
+        send_notification(switch_message)
+
+        if config.DRY_RUN:
+            dry_run_message = "DRY RUN: Not going through with switch today."
+            send_notification(dry_run_message)
+            return None
+
+        if cheapest_tariff.product_code is None:
+            send_notification("ERROR: product_code is missing.")
+            return 
+        
+        if account_info.mpan is None:
+            send_notification("ERROR: mpan is missing.")
+            return  
+        
+        enrolment_id = switch_tariff(cheapest_tariff.product_code, account_info.mpan)
+        if enrolment_id is None:
+            send_notification("ERROR: couldn't get enrolment ID")
+            return
+        else:
+            send_notification("Tariff switch requested successfully.")
         # Give octopus some time to generate the agreement
         time.sleep(60)
-        accept_new_agreement()
-        send_discord_message("Accepted agreement. Switch successful.")
+        accepted_version = accept_new_agreement(cheapest_tariff.product_code, enrolment_id)
+        send_notification("Accepted agreement (v.{version}). Switch successful.".format(version=accepted_version))
 
-        if verify_new_agreement():
-            send_discord_message("Verified new agreement successfully. Process finished.")
-        else:
-            send_discord_message("Unable to accept new agreement. Please check your emails.")
+        verified = verify_new_agreement()
+        if not verified:
+            send_notification("Verification failed, waiting 20 seconds and trying again...")
+            time.sleep(20)
+            verified = verify_new_agreement()  # Retry
+            
+            if verified:
+                send_notification("Verified new agreement successfully. Process finished.")
+            else:
+                send_notification(f"Unable to verify new agreement after retry. Please check your account and emails.\n" \
+                 f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages")
     else:
-        send_discord_message("Not switching today." + summary)
+        send_notification(f"{summary}\nNot switching today.")
+
+
+def load_tariffs_from_ids(tariff_ids: str):
+    global tariffs
+
+    # Convert the input string into a set of lowercase tariff IDs
+    requested_ids = set(tariff_ids.lower().split(","))
+
+    # Get all predefined tariffs from the Tariffs class
+    all_tariffs = TARIFFS
+
+    # Match requested tariffs to predefined ones
+    matched_tariffs = []
+    for tariff_id in requested_ids:
+        matched = next((t for t in all_tariffs if t.id == tariff_id), None)
+
+        if matched is not None:
+            matched_tariffs.append(matched)
+        else:
+            send_notification(f"Warning: No tariff found for ID '{tariff_id}'")
+
+    tariffs = matched_tariffs
 
 
 def run_tariff_compare():
     try:
         setup_gql(get_token())
+        load_tariffs_from_ids(config.TARIFFS)
         if gql_transport is not None and gql_client is not None:
             compare_and_switch()
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
-        send_discord_message(traceback.format_exc())
+        send_notification(message=traceback.format_exc(), title="Octobot Error", error=True)

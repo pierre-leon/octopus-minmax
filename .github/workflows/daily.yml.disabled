@@ -16,9 +16,7 @@
 #       API_KEY: ${{ secrets.API_KEY }}
 #       ACC_NUMBER: ${{ secrets.ACC_NUMBER }}
 #       BASE_URL: ${{ secrets.BASE_URL }}
-#       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-#       OCTOPUS_LOGIN_EMAIL: ${{ secrets.OCTOPUS_LOGIN_EMAIL }}
-#       OCTOPUS_LOGIN_PASSWD: ${{ secrets.OCTOPUS_LOGIN_PASSWD }}
+#       NOTIFICATION_URLS: ${{ secrets.NOTIFICATION_URLS }}
 #     steps:
 #     - uses: actions/checkout@v4
 #     - name: Set up Python 3.10

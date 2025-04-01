@@ -7,10 +7,9 @@ Due to how Octopus Energy's Smart tariffs work, switching manually makes the *ne
 
 I created this because I've been a long-time Agile customer who got tired of the price spikes. I now use this to enjoy the benefits of Agile (cheap days) without the risks (expensive days).
 
-I personally have this running automatically every day at 11 PM inside a Raspberry Pi Docker container, but you can run it wherever you want. It also uses Discord webhooks to send you updates and logs, but that's not necessary for it to work.
+I personally have this running automatically every day at 11 PM inside a Raspberry Pi Docker container, but you can run it wherever you want.  It sends notifications and updates to a variety of services via [Apprise](https://github.com/caronc/apprise), but that's not required for it to work.
 
 ## How to Use
-**Note**: This requires your email and password when using Playwright to log into your account. None of your data goes anywhere except to Octopus Energy.
 
 ### Requirements
 - An Octopus Energy Account  
@@ -18,7 +17,7 @@ I personally have this running automatically every day at 11 PM inside a Raspber
   - Get your API key [here](https://octopus.energy/dashboard/new/accounts/personal-details/api-access)
 - A smart meter
 - Be on Octopus Agile or Octopus Go (More options can be added in the future)
-- An Octopus Home Mini for real-time usage (**Important**)
+- An Octopus Home Mini for real-time usage (**Important**). Get one for free [here](https://octopus.energy/blog/octopus-home-mini/).
 
 ### Running Manually
 1. Install the Python requirements.
@@ -32,23 +31,64 @@ docker run -d \
   --name MinMaxOctopusBot \
   -e ACC_NUMBER="<your_account_number>" \
   -e API_KEY="<your_api_key>" \
-  -e OCTOPUS_LOGIN_EMAIL="<your_email>" \
-  -e OCTOPUS_LOGIN_PASSWD="<your_password>" \
   -e EXECUTION_TIME="23:00" \
-  -e DISCORD_WEBHOOK="<your_webhook_url>" \
+  -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
+  -e DRY_RUN=false \
+  -e PYTHONUNBUFFERED=1 \
+  -e TARIFFS=go,agile,flexible \
+  -e TZ=Europe/London \
+  --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
-
 or use the docker-compose.yaml **Don't forget to add your environment variables**
 
+Note : Remove the --restart unless line if you set the ONE_OFF variable or it will continuously run.
+
 #### Environment Variables
-| Variable               | Description                                                                                       |
-|------------------------|---------------------------------------------------------------------------------------------------|
-| `ACC_NUMBER`           | Your Octopus Energy account number.                                                               |
-| `API_KEY`              | API token for accessing your Octopus Energy account.                                              |
-| `OCTOPUS_LOGIN_EMAIL`  | The email associated with your Octopus Energy account.                                            |
-| `OCTOPUS_LOGIN_PASSWD` | The password for your Octopus Energy account.                                                     |
-| `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).           |
-| `DISCORD_WEBHOOK`      | (Optional) A Discord webhook URL for sending logs and updates.                                    |
-| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling |
+| Variable               | Description                                                                                                                                                                                                             |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ACC_NUMBER`           | Your Octopus Energy account number.                                                                                                                                                                                     |
+| `API_KEY`              | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
+| `TARIFFS`              | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      | 
+| `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).                                                                                                                                 |
+| `NOTIFICATION_URLS`    | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
+| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
+| `DRY_RUN`              | (optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |
+
+#### Supported Tariffs
+
+Below is a list of supported tariffs, their IDs (to use in environment variables), and whether they are switchable.
+
+**None switchable tariffs are use for PRICE COMPARISON ONLY**
+
+| Tariff Name      | Tariff ID | Switchable |
+|------------------|-----------|------------|
+| Flexible Octopus | flexible  | ❌          |
+| Agile Octopus    | agile     | ✅          |
+| Cosy Octopus     | cosy      | ✅          |
+| Octopus Go       | go        | ✅          |
+
+
+#### Setting up Apprise Notifications
+
+The `NOTIFICATION_URLS` environment variable allows you to configure notifications using the powerful [Apprise](https://github.com/caronc/apprise) library.  Apprise supports a wide variety of notification services, including Discord, Telegram, Slack, email, and many more.
+
+To configure notifications:
+
+1.  **Determine your desired notification services:**  Decide which services you want to receive notifications on (e.g., Discord, Telegram).
+
+2.  **Find the Apprise URL format for each service:**  Consult the [Apprise documentation](https://github.com/caronc/apprise/wiki) to find the correct URL format for each service you've chosen.  For example:
+
+    *   **Discord:** `discord://webhook_id/webhook_token`
+    *   **Telegram:** `tgram://bottoken/ChatID`
+
+3.  **Set the `NOTIFICATION_URLS` environment variable:** Create a comma-separated string containing the Apprise URLs for all your desired services.  For example:
+
+    ```bash
+    NOTIFICATION_URLS="discord://webhook_id/webhook_token,tgram://bottoken/ChatID,mailto://user:pass@example.com?to=recipient@example.com"
+    ```
+
+    Make sure to replace the example values with your actual credentials.
+
+4.  **Restart the container (if using Docker) or run the script:**  The bot will now send notifications to all the configured services.
