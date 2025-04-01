@@ -39,4 +39,4 @@ environment:
   NOTIFICATION_URLS: "{notification_urls}"
   TARIFFS: "{tariffs}"
   TZ: "{tz}"
-  PYTHONUNBUFFERED: 1
+  PYTHONUNBUFFERED: "1"
