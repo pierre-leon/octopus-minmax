@@ -1,0 +1,17 @@
+---
+configuration:
+  one_off:
+    name: One Off Execution
+    description: Run the comparison ONCE then quit.
+  notification_url:
+    name: Notification URLs
+    description: URLs to send notifications to. Using Apprise.
+  execution_time:
+    name: Execution Time
+    description: When not One Off. This is the time to execute comparison.
+  api_key:
+    name: API Key
+    description: Octopus API Key
+  acc_number:
+    name: Account Number
+    description: Enter Octopus Account Number
