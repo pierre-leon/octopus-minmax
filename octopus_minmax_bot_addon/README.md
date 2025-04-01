@@ -1,7 +1,7 @@
 # Octopus Minmax Bot 🐙🤖
 
 ## Description
-This bot will use your electricity usage and compare your current Smart tariff costs for the day with another smart tariff and initiate a switch if it's cheaper. Currently, it switches only between Octopus Agile and Octopus Go.
+This bot will use your electricity usage and compare your current Smart tariff costs for the day with another smart tariff and initiate a switch if it's cheaper. See below for supported tariffs.
 
 Due to how Octopus Energy's Smart tariffs work, switching manually makes the *new* tariff take effect from the start of the day. For example, if you switch at 11 PM, the whole day's costs will be recalculated based on your new tariff, allowing you to potentially save money by tariff-hopping.
 
@@ -16,8 +16,23 @@ I personally have this running automatically every day at 11 PM inside a Raspber
   - In case you don't have one, we both get £50 for using my referral: https://share.octopus.energy/coral-lake-50
   - Get your API key [here](https://octopus.energy/dashboard/new/accounts/personal-details/api-access)
 - A smart meter
-- Be on Octopus Agile or Octopus Go (More options can be added in the future)
+- Be on a supported Octopus Smart Tariff (see tariffs below)
 - An Octopus Home Mini for real-time usage (**Important**). Get one for free [here](https://octopus.energy/blog/octopus-home-mini/).
+
+### HomeAssistant Addon
+
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fjoeshuff%2Foctopus-minmax)
+
+OR
+
+To install this third-party add-on:
+
+1. Open Home Assistant > Settings > Add-ons > Add-on Store.
+2. Click the menu (three dots in the top-right corner) and select Repositories.
+3. Paste the GitHub repository link into the field at the bottom:
+https://github.com/eelmafia/octopus-minmax
+4. Refresh the page if needed. The add-on will appear under **Octopus MinMax Bot**.
+
 
 ### Running Manually
 1. Install the Python requirements.
