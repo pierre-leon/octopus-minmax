@@ -21,7 +21,6 @@ options:
   notification_urls: ""
   tariffs: "agile,go,flexible"
   tz: "Europe/London"
-  pythonunbuffered: 1
 schema:
   api_key: str
   acc_number: str
@@ -31,4 +30,13 @@ schema:
   notification_urls: str
   tariffs: str
   tz: str
-  pythonunbuffered: int
+environment:
+  API_KEY: "{api_key}"
+  ACC_NUMBER: "{acc_number}"
+  EXECUTION_TIME: "{execution_time}"
+  ONE_OFF: "{one_off}"
+  DRY_RUN: "{dry_run}"
+  NOTIFICATION_URLS: "{notification_urls}"
+  TARIFFS: "{tariffs}"
+  TZ: "{tz}"
+  PYTHONUNBUFFERED: 1
