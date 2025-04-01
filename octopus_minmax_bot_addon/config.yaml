@@ -14,13 +14,19 @@ arch:
   - aarch64
 options:
   one_off: false
-  notification_url: ""
+  dry_run: false
+  notification_urls: ""
   execution_time: "23:00"
   api_key: "API KEY HERE"
   acc_number: "ACC NUMBER HERE"
+  tariffs: "agile,go,flexible"
+  tz: "Europe/London"
 schema:
   one_off: bool
-  notification_url: str
+  dry_run: bool
+  notification_urls: str
   execution_time: str
   api_key: str
   acc_number: str
+  tariffs: str
+  tz: str
