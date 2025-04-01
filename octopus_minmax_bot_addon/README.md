@@ -1,0 +1,3 @@
+# README
+
+Octobot HA addon
