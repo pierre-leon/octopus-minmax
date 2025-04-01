@@ -1,7 +1,8 @@
 ---
 name: Octopus MinMax Bot
-image: eelmafia/octopus-minmax-bot:latest
-version: 0.7.1
+image: eelmafia/octopus-minmax-bot
+url: https://github.com/joeShuff/octopus-minmax-ha
+version: v0.7.2
 slug: octopus_minmax_bot
 startup: application
 init: false
@@ -15,8 +16,8 @@ options:
   one_off: false
   notification_url: ""
   execution_time: "23:00"
-  api_key: ""
-  acc_number: ""
+  api_key: "API KEY HERE"
+  acc_number: "ACC NUMBER HERE"
 schema:
   one_off: bool
   notification_url: str
