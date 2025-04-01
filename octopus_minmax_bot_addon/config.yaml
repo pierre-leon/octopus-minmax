@@ -1,6 +1,10 @@
+---
 name: Octopus MinMax Bot
-version: 0.1.1
-slug: octopus-minmax-bot
+image: eelmafia/octopus-minmax-bot:latest
+version: 0.7.1
+slug: octopus_minmax_bot
+startup: application
+init: false
 description: A bot to automatically compare and switch smart electricity tariffs on Octopus Energy
 arch:
   - armhf
@@ -9,18 +13,13 @@ arch:
   - aarch64
 options:
   one_off: false
-  discord_webhook: ""
+  notification_url: ""
   execution_time: "23:00"
-  octopus_password: ""
-  octopus_email: ""
   api_key: ""
   acc_number: ""
 schema:
   one_off: bool
-  discord_webhook: str
+  notification_url: str
   execution_time: str
-  octopus_password: password
-  octopus_email: str
   api_key: str
   acc_number: str
-image: eelmafia/octopus-minmax-bot:latest
