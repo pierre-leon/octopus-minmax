@@ -1,12 +1,11 @@
 import time
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import requests
 from apprise import Apprise
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
-#from playwright.sync_api import sync_playwright
 
 import config
 from account_info import AccountInfo
@@ -19,12 +18,13 @@ gql_client: Client
 tariffs = []
 
 
-def send_notification(message, title="Octobot"):
+def send_notification(message, title="", error=False):
     """Sends a notification using Apprise.
 
     Args:
         message (str): The message to send.
-        title (str, optional): The title of the notification. Defaults to "Octobot".
+        title (str, optional): The title of the notification.
+        error (bool, optional): Whether the message is a stack trace. Defaults to False.
     """
     print(message)
 
@@ -38,12 +38,8 @@ def send_notification(message, title="Octobot"):
         print("No notification services configured. Check config.NOTIFICATION_URLS.")
         return
 
-    # Check if any of the URLs are Discord URLs, and only wrap the message in backticks if *only* Discord is present
-    urls = config.NOTIFICATION_URLS.split(',') if config.NOTIFICATION_URLS else []  # Get the URLs, handle None
-    is_only_discord = all("discord" in url.lower() for url in urls)
-
-    if is_only_discord:
-        message = f"`{message}`"
+    if error:
+        message = f"```py\n{message}\n```"
 
     apprise.notify(body=message, title=title)
 
@@ -72,28 +68,46 @@ def get_acc_info() -> AccountInfo:
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
 
-    tariff_code = next(agreement['tariff']['tariffCode']
-                       for agreement in result['account']['electricityAgreements']
-                       if 'tariffCode' in agreement['tariff'])
-    product_code = next(agreement['tariff']['productCode']
-                        for agreement in result['account']['electricityAgreements']
-                        if 'productCode' in agreement['tariff'])
-    region_code = tariff_code[-1]
-    device_id = next(device['deviceId']
-                     for agreement in result['account']['electricityAgreements']
-                     for meter in agreement['meterPoint']['meters']
-                     for device in meter['smartDevices']
-                     if 'deviceId' in device)
-    curr_stdn_charge = next(agreement['tariff']['standingCharge']
-                            for agreement in result['account']['electricityAgreements']
-                            if 'standingCharge' in agreement['tariff'])
-    mpan = None
+    import_agreement = None
     for agreement in result.get("account", {}).get("electricityAgreements", []):
         meter_point = agreement.get("meterPoint", {})
-        if meter_point.get("direction") == "IMPORT" and meter_point.get("mpan"):
-            mpan = meter_point.get("mpan")
+        if meter_point.get("direction") == "IMPORT":
+            import_agreement = agreement
             break
+    
+    if not import_agreement:
+        raise Exception("ERROR: No IMPORT meter point found in account data")
 
+    tariff = import_agreement.get("tariff")
+    if not tariff:
+        raise Exception("ERROR: No tariff information found for the IMPORT meter")
+    
+    tariff_code = tariff.get("tariffCode")
+    if not tariff_code:
+        raise Exception("ERROR: No tariff code found for the IMPORT  tariff")
+    
+    curr_stdn_charge = tariff.get("standingCharge")
+    if not curr_stdn_charge:
+        raise Exception("ERROR: No standing charge found for the IMPORT meter tariff")
+    
+    region_code = tariff_code[-1]
+    mpan = import_agreement.get("meterPoint", {}).get("mpan")
+    if not mpan:
+        raise Exception("ERROR: No MPAN found for the IMPORT meter")
+
+    device_id = None
+    meter_point = import_agreement.get("meterPoint", {})
+    for meter in meter_point.get("meters", []):
+        for device in meter.get("smartDevices", []):
+            if "deviceId" in device:
+                device_id = device["deviceId"]
+                break
+        if device_id:
+            break
+    
+    if not device_id:
+        raise Exception("ERROR: No device ID found for the IMPORT meter")
+    
     matching_tariff = next((tariff for tariff in tariffs if tariff.is_tariff(tariff_code)), None)
     if matching_tariff is None:
         raise Exception(f"ERROR: Found no supported tariff for {tariff_code}")
@@ -204,8 +218,7 @@ def get_token():
 
 
 def switch_tariff(target_product_code, mpan):
-    # Note that we must use tomorrow's date but the switch can (will) happen today
-    change_date = date.today() + timedelta(days=1)
+    change_date = date.today()
     query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
     result = gql_client.execute(query)
     return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
@@ -215,9 +228,9 @@ def verify_new_agreement():
     query = gql(account_query.format(acc_number=config.ACC_NUMBER))
     result = gql_client.execute(query)
     today = datetime.now().date()
-    valid_from = next(datetime.fromisoformat(agreement['validFrom']).date()
+    valid_from = next((datetime.fromisoformat(agreement['validFrom']).date()
                       for agreement in result['account']['electricityAgreements']
-                      if 'validFrom' in agreement)
+                      if 'validFrom' in agreement),None)
 
     # For some reason, sometimes the agreement has no end date, so I'm not sure if this bit is still relevant?
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
@@ -233,7 +246,7 @@ def setup_gql(token):
 
 def compare_and_switch():
     welcome_message = "DRY RUN: " if config.DRY_RUN else ""
-    welcome_message += "Octobot on. Starting comparison of today's costs..."
+    welcome_message += "Starting comparison of today's costs..."
     send_notification(welcome_message)
 
     account_info = get_acc_info()
@@ -325,10 +338,17 @@ def compare_and_switch():
         accepted_version = accept_new_agreement(cheapest_tariff.product_code, enrolment_id)
         send_notification("Accepted agreement (v.{version}). Switch successful.".format(version=accepted_version))
 
-        if verify_new_agreement():
-            send_notification("Verified new agreement successfully. Process finished.")
-        else:
-            send_notification("Unable to accept new agreement. Please check your emails.")
+        verified = verify_new_agreement()
+        if not verified:
+            send_notification("Verification failed, waiting 20 seconds and trying again...")
+            time.sleep(20)
+            verified = verify_new_agreement()  # Retry
+            
+            if verified:
+                send_notification("Verified new agreement successfully. Process finished.")
+            else:
+                send_notification(f"Unable to verify new agreement after retry. Please check your account and emails.\n" \
+                 f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages")
     else:
         send_notification(f"{summary}\nNot switching today.")
 
@@ -364,4 +384,4 @@ def run_tariff_compare():
         else:
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
-        send_notification(traceback.format_exc())
+        send_notification(message=traceback.format_exc(), title="Octobot Error", error=True)
