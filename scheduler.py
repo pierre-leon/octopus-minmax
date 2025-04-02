@@ -2,7 +2,8 @@ import time
 from datetime import datetime
 import random
 import config
-from main import run_tariff_compare, send_notification
+from main import run_tariff_compare
+from notification import send_notification
 
 # Track last execution date to ensure we only run once per day
 last_execution_date = None

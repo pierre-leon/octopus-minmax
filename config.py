@@ -10,7 +10,11 @@ ACC_NUMBER = os.getenv("ACC_NUMBER", "")
 BASE_URL = os.getenv("BASE_URL", "https://api.octopus.energy/v1")
 # Comma-separated list of Apprise notification URLs
 NOTIFICATION_URLS = os.getenv("NOTIFICATION_URLS", "")
-EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
+# Whether to send all the notifications as a batch or individually
+BATCH_NOTIFICATIONS = os.getenv("BATCH_NOTIFICATIONS", "false") in ["true", "True", "1"]
+BATCH_NOTIFICATIONS_TITLE = os.getenv("BATCH_NOTIFICATIONS_TITLE", "Batched Notifications")
+
+EXECUTION_TIME = os.getenv("BATCH_NOTIFICATIONS", "23:00")
 
 # List of tariff IDs to compare
 TARIFFS = os.getenv("TARIFFS", "go,agile,flexible")
