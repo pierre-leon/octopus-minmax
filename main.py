@@ -262,9 +262,9 @@ def compare_and_switch():
     # Track costs key: Tariff, value: total cost in pence
     # Add current tariff
     costs = {current_tariff: total_curr_cost}
-        # Track costs in detail key: tarrif display name, values: total cost, standing charge, consumption cost
+        # Track costs in detail key: tarrif name (id), values: total cost, standing charge, consumption cost
     costs_breakdown = {}
-    costs_breakdown[current_tariff.display_name] = {
+    costs_breakdown[current_tariff.id] = {
         "total_cost": total_curr_cost,
         "standing_charge": account_info.standing_charge,
         "consumption_cost": total_con_cost
