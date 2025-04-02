@@ -1,9 +1,5 @@
 from apprise import Apprise
-
-import atexit
 import config
-import signal
-import sys
 
 notifications = []
 
@@ -44,27 +40,9 @@ def send_notification(message, title="", error=False):
     else:
         apprise.notify(body=message, title=title)
 
-def cleanup():
-    """For cases where the script exits normally, use atexit"""
-    print("Cleaning up before exit...")
+def send_batch_notification():
     get_apprise().notify(body=batch_message(), title=config.BATCH_NOTIFICATIONS_TITLE)
-
-atexit.register(cleanup)
-
-def handle_exit(signal_received, frame):
-    """Use the signal module to catch SIGINT (Ctrl+C)"""
-    print("Caught Ctrl+C! Cleaning up...")
-    get_apprise().notify(body=batch_message(), title=config.BATCH_NOTIFICATIONS_TITLE)
-    sys.exit(0)  # Ensures normal exit
-
-signal.signal(signal.SIGINT, handle_exit)
-
-def handle_sigterm(signal_received, frame):
-    """If running in a production environment (e.g., Docker, systemd), it may receive SIGTERM"""
-    print("Received SIGTERM. Cleaning up...")
-    get_apprise().notify(body=batch_message(), title=config.BATCH_NOTIFICATIONS_TITLE)
-    sys.exit(0) # Ensures normal exit
-
-signal.signal(signal.SIGTERM, handle_sigterm)
+    global notifications
+    notifications = []
 
 

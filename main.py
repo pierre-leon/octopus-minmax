@@ -8,7 +8,7 @@ from gql.transport.aiohttp import AIOHTTPTransport
 
 import config
 from account_info import AccountInfo
-from notification import send_notification
+from notification import send_notification, send_batch_notification
 from queries import *
 from tariff import TARIFFS
 
@@ -360,3 +360,6 @@ def run_tariff_compare():
             raise Exception("ERROR: setup_gql has failed")
     except Exception:
         send_notification(message=traceback.format_exc(), title="Octobot Error", error=True)
+    finally:
+        if config.BATCH_NOTIFICATIONS:
+            send_batch_notification()
