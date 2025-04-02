@@ -14,7 +14,7 @@ NOTIFICATION_URLS = os.getenv("NOTIFICATION_URLS", "")
 BATCH_NOTIFICATIONS = os.getenv("BATCH_NOTIFICATIONS", "false") in ["true", "True", "1"]
 BATCH_NOTIFICATIONS_TITLE = os.getenv("BATCH_NOTIFICATIONS_TITLE", "Batched Notifications")
 
-EXECUTION_TIME = os.getenv("BATCH_NOTIFICATIONS", "23:00")
+EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
 
 # List of tariff IDs to compare
 TARIFFS = os.getenv("TARIFFS", "go,agile,flexible")
