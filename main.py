@@ -383,5 +383,5 @@ def run_tariff_compare():
             compare_and_switch()
         else:
             raise Exception("ERROR: setup_gql has failed")
-    except Exception:
+    except:
         send_notification(message=traceback.format_exc(), title="Octobot Error", error=True)
