@@ -13,5 +13,4 @@ services:
       - NOTIFICATION_URLS=<your_apprise_notification_urls>
       - ONE_OFF=false
       - DRY_RUN=false
-      - PYTHONUNBUFFERED=1
       - TARIFFS=go,agile,flexible
