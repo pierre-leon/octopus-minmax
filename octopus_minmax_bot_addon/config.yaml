@@ -1,8 +1,8 @@
 ---
 name: Octopus MinMax Bot
-image: denizenn/octopus-minmax-bot
+image: eelmafia/octopus-minmax-bot
 url: https://github.com/eelmafia/octopus-minmax
-version: v0.10
+version: v0.7.2
 slug: octopus_minmax_bot
 startup: application
 init: false
