@@ -50,7 +50,6 @@ docker run -d \
   -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
   -e DRY_RUN=false \
-  -e PYTHONUNBUFFERED=1 \
   -e TARIFFS=go,agile,flexible \
   -e TZ=Europe/London \
   --restart unless-stopped \
