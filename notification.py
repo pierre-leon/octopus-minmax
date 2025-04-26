@@ -1,5 +1,6 @@
 from apprise import Apprise
 import config
+from datetime import datetime
 
 notifications = []
 
@@ -41,7 +42,11 @@ def send_notification(message, title="", error=False):
         apprise.notify(body=message, title=title)
 
 def send_batch_notification():
-    get_apprise().notify(body=batch_message(), title=config.BATCH_NOTIFICATIONS_TITLE)
+    now = datetime.now()
+    title = now.strftime(f"Octopus MinMax Results - %a %d %b {config.EXECUTION_TIME if not config.ONE_OFF_RUN else now.strftime('%H:%M:%S')}")
+    get_apprise().notify(body=batch_message(), title=title)
+
+    # Clear all notifications
     global notifications
     notifications = []
 

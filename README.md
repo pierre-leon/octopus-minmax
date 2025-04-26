@@ -70,8 +70,6 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `ONE_OFF`                   | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
 | `DRY_RUN`                   | (optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |
 | `BATCH_NOTIFICATIONS`       | (optional) A flag to send messages in one batch rather than individually.                                                                                                                                               |
-| `BATCH_NOTIFICATIONS_TITLE` | (optional) The title to use when sending batch notifications. Default is `Batched Notifications`.                                                                                                                       |
-
 
 #### Supported Tariffs
 
