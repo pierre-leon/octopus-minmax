@@ -12,7 +12,7 @@ if config.ONE_OFF_RUN:
     send_notification(message=f"Octobot {config.BOT_VERSION} on. Running a one off comparison.")
     run_tariff_compare()
 else:
-    send_notification(message=f"Welcome to Octobot {config.BOT_VERSION}. I will run your comparisons at {config.EXECUTION_TIME}")
+    send_notification(message=f"Welcome to Octobot {config.BOT_VERSION}. I will run your comparisons at {config.EXECUTION_TIME}", batchable=False)
 
     while True:
         now = datetime.now()

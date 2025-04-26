@@ -17,13 +17,14 @@ def get_apprise():
 def batch_message():
     return "\n".join(notifications)
 
-def send_notification(message, title="", error=False):
+def send_notification(message, title="", error=False, batchable=True):
     """Sends a notification using Apprise.
 
     Args:
         message (str): The message to send.
         title (str, optional): The title of the notification.
         error (bool, optional): Whether the message is a stack trace. Defaults to False.
+        batchable (bool, optional): Whether the message can be batched.
     """
     print(message)
 
@@ -36,7 +37,7 @@ def send_notification(message, title="", error=False):
     if error:
         message = f"```py\n{message}\n```"
 
-    if config.BATCH_NOTIFICATIONS:
+    if config.BATCH_NOTIFICATIONS and batchable:
         notifications.append(message)
     else:
         apprise.notify(body=message, title=title)
