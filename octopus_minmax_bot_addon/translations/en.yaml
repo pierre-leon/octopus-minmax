@@ -24,3 +24,6 @@ configuration:
   TZ:
     name: Timezone
     description: Timezone for container
+  BATCH_NOTIFICATIONS:
+    name: Batch Notifications
+    description: An optional flag to send messages in one batch rather than individually

@@ -22,6 +22,7 @@ options:
   NOTIFICATION_URLS: ""
   TARIFFS: "agile,go,flexible"
   TZ: "Europe/London"
+  BATCH_NOTIFICATIONS: false
 schema:
   API_KEY: str
   ACC_NUMBER: str
@@ -31,3 +32,4 @@ schema:
   NOTIFICATION_URLS: str
   TARIFFS: str
   TZ: str
+  BATCH_NOTIFICATIONS: bool
