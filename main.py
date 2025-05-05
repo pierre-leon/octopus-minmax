@@ -209,12 +209,22 @@ def calculate_potential_costs(consumption_data, rate_data):
     return period_costs
 
 
-def get_token():
+def get_token(retries=3, delay=3):
     transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/")
     client = Client(transport=transport, fetch_schema_from_transport=True)
     query = gql(token_query.format(api_key=config.API_KEY))
-    result = client.execute(query)
-    return result['obtainKrakenToken']['token']
+    for attempt in range(1, retries +1):
+        try:
+            result = client.execute(query)
+            if attempt > 1:
+                send_notification(f"Kraken access token fetched after previous {attempt - 1} attempt(s) failed")
+            return result['obtainKrakenToken']['token']
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(delay)
+            else:
+                raise Exception(f"ERROR: Failed to obtain Kraken token after {retries} retries") from e
+
 
 
 def switch_tariff(target_product_code, mpan):
