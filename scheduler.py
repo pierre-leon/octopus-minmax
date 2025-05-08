@@ -21,8 +21,8 @@ else:
 
         if current_time == config.EXECUTION_TIME and last_execution_date != current_date:
             last_execution_date = current_date
-            # 10 Sec - 10 Min Random Delay to prevent all users attempting to access API at same time
-            delay = random.randint(10,600) 
+            # 10 Sec - 15 Min Random Delay to prevent all users attempting to access API at same time
+            delay = random.randint(10,900)
             send_notification(message=f"Octobot {config.BOT_VERSION} on. Initiating comparison in {delay/60:.1f} minutes")
             delay = time.sleep(delay)
             run_tariff_compare()
