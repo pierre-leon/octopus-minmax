@@ -17,6 +17,11 @@ gql_client: Client
 
 tariffs = []
 
+headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
+        "Accept": "*/*"
+}
 
 # The version of the terms and conditions is required to accept the new tariff
 def get_terms_version(product_code):
@@ -185,7 +190,7 @@ def calculate_potential_costs(consumption_data, rate_data):
 
 
 def get_token():
-    transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/")
+    transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/", headers=headers)
     client = Client(transport=transport, fetch_schema_from_transport=True)
     query = gql(token_query.format(api_key=config.API_KEY))
     result = client.execute(query)
@@ -215,7 +220,8 @@ def verify_new_agreement():
 
 def setup_gql(token):
     global gql_transport, gql_client
-    gql_transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/", headers={'Authorization': f'{token}'})
+    headers["Authorization"] = f'{token}'
+    gql_transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/", headers=headers)
     gql_client = Client(transport=gql_transport, fetch_schema_from_transport=True)
 
 
