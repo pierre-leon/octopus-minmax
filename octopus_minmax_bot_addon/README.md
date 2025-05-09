@@ -52,7 +52,6 @@ docker run -d \
   -e DRY_RUN=false \
   -e TARIFFS=go,agile,flexible \
   -e TZ=Europe/London \
-  -e BATCH_NOTIFICATIONS=false \
   --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
@@ -61,16 +60,16 @@ or use the docker-compose.yaml **Don't forget to add your environment variables*
 Note : Remove the --restart unless line if you set the ONE_OFF variable or it will continuously run.
 
 #### Environment Variables
-| Variable               | Description                                                                                                                                                                                                             |
-|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ACC_NUMBER`           | Your Octopus Energy account number.                                                                                                                                                                                     |
-| `API_KEY`              | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
-| `TARIFFS`              | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      | 
-| `EXECUTION_TIME`       | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).                                                                                                                                 |
-| `NOTIFICATION_URLS`    | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
-| `ONE_OFF`              | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
-| `DRY_RUN`              | (optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |
-| `BATCH_NOTIFICATIONS`  | (optional) A flag to send messages in one batch rather than individually.                                                                                                                                               |
+| Variable                    | Description                                                                                                                                                                                                             |
+|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ACC_NUMBER`                | Your Octopus Energy account number.                                                                                                                                                                                     |
+| `API_KEY`                   | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
+| `TARIFFS`                   | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      | 
+| `EXECUTION_TIME`            | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).                                                                                                                                 |
+| `NOTIFICATION_URLS`         | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
+| `ONE_OFF`                   | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
+| `DRY_RUN`                   | (optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |
+| `BATCH_NOTIFICATIONS`       | (optional) A flag to send messages in one batch rather than individually.                                                                                                                                               |
 
 #### Supported Tariffs
 
