@@ -52,6 +52,7 @@ docker run -d \
   -e DRY_RUN=false \
   -e TARIFFS=go,agile,flexible \
   -e TZ=Europe/London \
+  -e BATCH_NOTIFICATIONS=false \
   --restart unless-stopped \
   eelmafia/octopus-minmax-bot
 ```
