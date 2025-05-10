@@ -25,35 +25,6 @@ headers = {
         "Accept": "*/*"
 }
 
-def send_notification(message, title="", error=False, image_path=None):
-    """Sends a notification using Apprise.
-
-    Args:
-        message (str): The message to send.
-        title (str, optional): The title of the notification.
-        error (bool, optional): Whether the message is a stack trace. Defaults to False.
-        image_path (str, optional): path to image
-    """
-    print(message)
-
-    apprise = Apprise()
-
-    if config.NOTIFICATION_URLS:
-        for url in config.NOTIFICATION_URLS.split(','):
-            apprise.add(url.strip())
-
-    if not apprise:
-        print("No notification services configured. Check config.NOTIFICATION_URLS.")
-        return
-
-    if error:
-        message = f"```py\n{message}\n```"
-
-    if image_path:
-        apprise.notify(body=message, title=title, attach=image_path)
-    else:
-        apprise.notify(body=message, title=title)
-
 def create_tariff_comparison_chart(costs_breakdown):
     plt.style.use('dark_background')
 
