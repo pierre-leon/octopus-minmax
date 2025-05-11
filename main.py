@@ -1,32 +1,21 @@
 import time
 import traceback
 from datetime import date, datetime
-
 import requests
-from gql import Client, gql
-from gql.transport.aiohttp import AIOHTTPTransport
-
 import config
 from account_info import AccountInfo
 from notification import send_notification, send_batch_notification
 from queries import *
 from tariff import TARIFFS
+from query_service import QueryService
 
-gql_transport: AIOHTTPTransport
-gql_client: Client
-
+query_service: QueryService
 tariffs = []
-
-headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36",
-        "Accept": "*/*"
-}
 
 # The version of the terms and conditions is required to accept the new tariff
 def get_terms_version(product_code):
-    query = gql(get_terms_version_query.format(product_code=product_code))
-    result = gql_client.execute(query)
+    query = get_terms_version_query.format(product_code=product_code)
+    result = query_service.execute_gql_query(query)
     terms_version = result.get('termsAndConditionsForProduct', {}).get('version', "1.0").split('.')
 
     return({'major': int(terms_version[0]), 'minor': int(terms_version[1])})
@@ -35,19 +24,18 @@ def accept_new_agreement(product_code, enrolment_id):
     # get terms and conditions version
     version = get_terms_version(product_code)
     # accept terms and conditions
-    query = gql(accept_terms_query.format(account_number=config.ACC_NUMBER, 
+    query = accept_terms_query.format(account_number=config.ACC_NUMBER,
                                           enrolment_id=enrolment_id,
                                           version_major=version['major'],
-                                          version_minor=version['minor']))
-    result = gql_client.execute(query)
+                                          version_minor=version['minor'])
+    result = query_service.execute_gql_query(query)
     return result.get('acceptTermsAndConditions', {}).get('acceptedVersion', "unknown version")
 
 
 
 def get_acc_info() -> AccountInfo:
-    query = gql(account_query.format(acc_number=config.ACC_NUMBER))
-    result = gql_client.execute(query)
-
+    query = account_query.format(acc_number=config.ACC_NUMBER)
+    result = query_service.execute_gql_query(query)
     import_agreement = None
     for agreement in result.get("account", {}).get("electricityAgreements", []):
         meter_point = agreement.get("meterPoint", {})
@@ -93,9 +81,9 @@ def get_acc_info() -> AccountInfo:
         raise Exception(f"ERROR: Found no supported tariff for {tariff_code}")
 
     # Get consumption for today
-    result = gql_client.execute(
-        gql(consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:00:00Z",
-                                     end_date=f"{date.today()}T23:59:59Z")))
+    query = consumption_query.format(device_id=device_id, start_date=f"{date.today()}T00:00:00Z",
+                                     end_date=f"{date.today()}T23:59:59Z")
+    result = query_service.execute_gql_query(query)
     consumption = result['smartMeterTelemetry']
 
     return AccountInfo(matching_tariff, curr_stdn_charge, region_code, consumption, mpan)
@@ -188,25 +176,15 @@ def calculate_potential_costs(consumption_data, rate_data):
         })
     return period_costs
 
-
-def get_token():
-    transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/", headers=headers)
-    client = Client(transport=transport, fetch_schema_from_transport=True)
-    query = gql(token_query.format(api_key=config.API_KEY))
-    result = client.execute(query)
-    return result['obtainKrakenToken']['token']
-
-
 def switch_tariff(target_product_code, mpan):
     change_date = date.today()
-    query = gql(switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date))
-    result = gql_client.execute(query)
+    query = switch_query.format(account_number=config.ACC_NUMBER, mpan=mpan, product_code=target_product_code, change_date=change_date)
+    result = query_service.execute_gql_query(query)
     return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
 
-
 def verify_new_agreement():
-    query = gql(account_query.format(acc_number=config.ACC_NUMBER))
-    result = gql_client.execute(query)
+    query = account_query.format(acc_number=config.ACC_NUMBER)
+    result = query_service.execute_gql_query(query)
     today = datetime.now().date()
     valid_from = next((datetime.fromisoformat(agreement['validFrom']).date()
                       for agreement in result['account']['electricityAgreements']
@@ -216,14 +194,6 @@ def verify_new_agreement():
     # valid_to = datetime.fromisoformat(result['account']['electricityAgreements'][0]['validTo']).date()
     # next_year = valid_from.replace(year=valid_from.year + 1)
     return valid_from == today
-
-
-def setup_gql(token):
-    global gql_transport, gql_client
-    headers["Authorization"] = f'{token}'
-    gql_transport = AIOHTTPTransport(url=f"{config.BASE_URL}/graphql/", headers=headers)
-    gql_client = Client(transport=gql_transport, fetch_schema_from_transport=True)
-
 
 def compare_and_switch():
     welcome_message = "DRY RUN: " if config.DRY_RUN else ""
@@ -358,9 +328,10 @@ def load_tariffs_from_ids(tariff_ids: str):
 
 def run_tariff_compare():
     try:
-        setup_gql(get_token())
+        global query_service
+        query_service = QueryService(config.API_KEY, config.BASE_URL)
         load_tariffs_from_ids(config.TARIFFS)
-        if gql_transport is not None and gql_client is not None:
+        if query_service is not None:
             compare_and_switch()
         else:
             raise Exception("ERROR: setup_gql has failed")
