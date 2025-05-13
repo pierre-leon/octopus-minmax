@@ -1,3 +1,6 @@
+## v0.8.1-PL - Update to v0.8.1 from upstream
+Replace gql with requests by @eelmafia in https://github.com/eelmafia/octopus-minmax/pull/88
+
 ## v0.8.1 - v0.8.1
 ## What's Changed
 * Replace gql with requests by @eelmafia in https://github.com/eelmafia/octopus-minmax/pull/88
