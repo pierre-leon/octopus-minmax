@@ -1,3 +1,14 @@
+## v1.0.9 - v1.0.9
+## What's Changed
+* Update Addon Configuration to v1.0.8 by @github-actions[bot] in https://github.com/eelmafia/octopus-minmax/pull/163
+* Incorrect port number in readme.md by @Morph-Ed in https://github.com/eelmafia/octopus-minmax/pull/165
+* Add new tariff option by @eelmafia in https://github.com/eelmafia/octopus-minmax/pull/177
+
+## New Contributors
+* @Morph-Ed made their first contribution in https://github.com/eelmafia/octopus-minmax/pull/165
+
+**Full Changelog**: https://github.com/eelmafia/octopus-minmax/compare/v1.0.8...v1.0.9
+
 ## v1.0.8 - v1.0.8
 ## What's Changed
 * Update Addon Configuration to v1.0.7 by @github-actions[bot] in https://github.com/eelmafia/octopus-minmax/pull/159
