@@ -2,6 +2,7 @@ from apprise import Apprise
 from datetime import datetime
 from typing import List, Optional
 import logging
+import os
 
 import config
 
@@ -68,11 +69,23 @@ class NotificationService:
                 return False
             notify_kwargs = {"body": message, "title": title}
             if image_path:
-                notify_kwargs["attach"] = image_path
+                abs_path = os.path.abspath(image_path)
+                if not os.path.isfile(abs_path):
+                    logger.error(f"Cannot attach missing file: {abs_path}")
+                else:
+                    # file:// URLs are more reliable with Apprise than raw paths.
+                    notify_kwargs["attach"] = f"file://{abs_path}"
             success = apprise.notify(**notify_kwargs)
-            logger.info(f"Successfuly sent notification: {message}")
-            if not success:
-                logger.error(f"Failed to send notification: {title}")
+            if success:
+                logger.info(f"Sent notification: {message}")
+            else:
+                logger.error(f"Failed to send notification (title={title!r}, attach={bool(image_path)})")
+                if image_path:
+                    logger.info("Retrying notification without attachment")
+                    retry_kwargs = {"body": message, "title": title}
+                    success = apprise.notify(**retry_kwargs)
+                    if success:
+                        logger.info(f"Sent notification without attachment: {message}")
             return success
 
     def send_batch_notification(self) -> bool:
@@ -93,7 +106,11 @@ class NotificationService:
             return False
         notify_kwargs = {"body": body, "title": title}
         if self._batch_image_path:
-            notify_kwargs["attach"] = self._batch_image_path
+            abs_path = os.path.abspath(self._batch_image_path)
+            if os.path.isfile(abs_path):
+                notify_kwargs["attach"] = f"file://{abs_path}"
+            else:
+                logger.error(f"Cannot attach missing file: {abs_path}")
         success = apprise.notify(**notify_kwargs)
         if success:
             logger.info(f"Sent batch notification with {len(self.batch_notifications)} messages")

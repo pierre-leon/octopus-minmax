@@ -160,12 +160,14 @@ class BotOrchestrator:
         results = comparison_engine.compare_tariffs(account_info, self.tariffs)
 
         summary = self._format_comparison_summary(results)
+        ns.send_notification(message=summary)
         try:
             cost_chart = create_tariff_comparison_chart(results)
         except Exception as e:
             logger.warning(f"Failed to create comparison chart: {e}")
             cost_chart = None
-        ns.send_notification(message=summary, image_path=cost_chart)
+        if cost_chart:
+            ns.send_notification(message="Tariff comparison chart", image_path=cost_chart, batchable=False)
 
         if results.should_switch:
             switch_message = f"Initiating Switch to {results.cheapest_tariff.display_name}"

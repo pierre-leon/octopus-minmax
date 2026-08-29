@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 
 import matplotlib
@@ -9,7 +10,12 @@ from comparison_engine import ComparisonResult
 
 logger = logging.getLogger("octobot.chart")
 
-CHART_PATH = "/tmp/tariff_comparison.png"
+
+def _chart_path() -> str:
+    for directory in ("/data", "/app/logs", "/tmp"):
+        if os.path.isdir(directory) and os.access(directory, os.W_OK):
+            return os.path.join(directory, "tariff_comparison.jpg")
+    return "/tmp/tariff_comparison.jpg"
 
 
 def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
@@ -26,6 +32,8 @@ def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
 
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(8, 6))
+    fig.patch.set_facecolor("#121212")
+    ax.set_facecolor("#121212")
     bars_standing = ax.bar(labels, standing_charges, color="#9A3B3B")
     ax.bar(labels, consumption_costs, bottom=standing_charges, color="#632626")
 
@@ -48,6 +56,18 @@ def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
     ax.grid(False, axis="x")
     plt.tight_layout()
 
-    plt.savefig(CHART_PATH)
+    path = _chart_path()
+    try:
+        fig.savefig(path, format="jpeg", dpi=120, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    except ValueError:
+        path = os.path.splitext(path)[0] + ".png"
+        fig.savefig(path, format="png", dpi=120, facecolor=fig.get_facecolor(), bbox_inches="tight")
     plt.close(fig)
-    return CHART_PATH
+
+    size = os.path.getsize(path) if os.path.isfile(path) else 0
+    if size <= 0:
+        logger.error(f"Comparison chart was not written to {path}")
+        return None
+
+    logger.info(f"Wrote comparison chart ({size} bytes) to {path}")
+    return path
