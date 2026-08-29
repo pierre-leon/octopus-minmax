@@ -15,11 +15,20 @@ BATCH_NOTIFICATIONS = os.getenv("BATCH_NOTIFICATIONS", "false") in ["true", "Tru
 
 EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
 
+# A threshold (in pence) over which the difference between the tariffs must be before the switch happens.
+SWITCH_THRESHOLD = int(os.getenv("SWITCH_THRESHOLD", 2))
+
 # List of tariff IDs to compare
 TARIFFS = os.getenv("TARIFFS", "go,agile,flexible")
 
 # Whether to just run immediately and exit
 ONE_OFF_RUN = os.getenv("ONE_OFF", "false") in ["true", "True", "1"]
+ONE_OFF_EXECUTED = False
 
 # Whether to notify the user of a switch but not actually switch
 DRY_RUN = os.getenv("DRY_RUN", "false") in ["true", "True", "1"]
+
+# Web UI authentication
+WEB_USERNAME = os.getenv("WEB_USERNAME", "admin")
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
+WEB_PORT = int(os.getenv("WEB_PORT", 5050))
