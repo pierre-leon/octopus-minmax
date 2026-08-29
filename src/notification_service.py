@@ -77,10 +77,13 @@ class NotificationService:
                     notify_kwargs["attach"] = f"file://{abs_path}"
             success = apprise.notify(**notify_kwargs)
             if success:
-                logger.info(f"Sent notification: {message}")
+                if message:
+                    logger.info(f"Sent notification: {message}")
+                else:
+                    logger.info("Sent notification attachment")
             else:
                 logger.error(f"Failed to send notification (title={title!r}, attach={bool(image_path)})")
-                if image_path:
+                if image_path and message:
                     logger.info("Retrying notification without attachment")
                     retry_kwargs = {"body": message, "title": title}
                     success = apprise.notify(**retry_kwargs)

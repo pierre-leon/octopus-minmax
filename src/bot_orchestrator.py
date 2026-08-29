@@ -168,7 +168,7 @@ class BotOrchestrator:
                 logger.warning(f"Failed to create comparison chart: {e}")
                 cost_chart = None
             if cost_chart:
-                ns.send_notification(message="Tariff comparison chart", image_path=cost_chart, batchable=False)
+                ns.send_notification(message="", image_path=cost_chart, batchable=False)
 
         if results.should_switch:
             switch_message = f"Initiating Switch to {results.cheapest_tariff.display_name}"
