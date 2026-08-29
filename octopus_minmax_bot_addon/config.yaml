@@ -2,7 +2,14 @@
 name: Octopus MinMax Bot
 image: eelmafia/octopus-minmax-bot
 url: https://github.com/eelmafia/octopus-minmax
-version: v0.8.1
+ingress: true
+ingress_port: 5050
+ports:
+  5050/tcp: null
+ports_description:
+  5050/tcp: Web UI (optional external access)
+webui: http://[HOST]:[PORT:5050]/
+version: v1.0.9-PL
 slug: octopus_minmax_bot
 startup: application
 init: false
