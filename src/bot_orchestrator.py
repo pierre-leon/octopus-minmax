@@ -123,17 +123,17 @@ class BotOrchestrator:
         if not current.can_leave:
             if result.cheapest_tariff is None:
                 return (
-                    f"Comparison only — current tariff ({current.display_name}) cannot be switched "
+                    f"Comparison only - current tariff ({current.display_name}) cannot be switched "
                     f"from automatically."
                 )
             if result.potential_savings > 0:
                 return (
-                    f"Comparison only — staying on {current.display_name}{current_cost}. "
+                    f"Comparison only - staying on {current.display_name}{current_cost}. "
                     f"Cheapest switchable tariff today is {result.cheapest_tariff.display_name} "
                     f"(£{result.potential_savings / 100:.2f} cheaper)."
                 )
             return (
-                f"Comparison only — current tariff {current.display_name}{current_cost} is cheaper "
+                f"Comparison only - current tariff {current.display_name}{current_cost} is cheaper "
                 f"than the switchable alternatives today."
             )
 
@@ -141,7 +141,7 @@ class BotOrchestrator:
             return f"You are already on the cheapest tariff: {current.display_name}{current_cost}"
 
         if result.cheapest_tariff is None:
-            return "Not switching today — no cheaper switchable tariff was found."
+            return "Not switching today - no cheaper switchable tariff was found."
 
         return (
             f"Not switching today - savings of (£{result.potential_savings / 100:.2f}) "
