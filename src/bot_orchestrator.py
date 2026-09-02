@@ -17,6 +17,18 @@ logger = logging.getLogger('octobot.bot_orchestrator')
 def get_timestamp():
     return datetime.now().strftime("%d/%m/%Y %H:%M")
 
+def octopus_login_url() -> str:
+    if config.DASHBOARD_URL:
+        return f"{config.DASHBOARD_URL}/auth"
+    return f"http://localhost:{config.WEB_PORT}/auth"
+
+def switch_login_needed_message() -> str:
+    return (
+        "Tariff switching needs a one-time Octopus login (API keys can no longer start a switch).\n"
+        f"Open: {octopus_login_url()}\n"
+        "Sign in with your Octopus email and password. The bot stores a refresh token, not your password."
+    )
+
 class BotOrchestrator:
     def __init__(self):
         logger.debug(f"Initialising {__class__.__name__}")
@@ -32,6 +44,8 @@ class BotOrchestrator:
 
         mode_msg = "ONE_OFF mode enabled" if config.ONE_OFF_RUN else f"Scheduled mode, running at {config.EXECUTION_TIME}"
         ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - {mode_msg} \n Check port {config.WEB_PORT} for dashboard.")
+        if not QueryService.has_switch_auth():
+            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
 
         while True:
             if config.ONE_OFF_RUN and not config.ONE_OFF_EXECUTED:
@@ -175,6 +189,8 @@ class BotOrchestrator:
             ns.send_notification(switch_message)
             if config.DRY_RUN:
                 ns.send_notification("DRY RUN: Not going through with switch today.")
+            elif not QueryService.has_switch_auth():
+                ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
             else:
                 self._execute_switch(results.cheapest_tariff, account_info)
         else:

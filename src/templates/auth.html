@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold text-gray-100">Octopus Login</h2>
+        <a href="." class="text-blue-400 hover:text-blue-300">← Back to Dashboard</a>
+    </div>
+
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+        <h3 class="text-xl font-bold text-gray-100 mb-2">Status</h3>
+        {% if status.connected %}
+            <p class="text-green-400 font-semibold">Connected{% if status.email %} as {{ status.email }}{% endif %}</p>
+            {% if status.can_switch %}
+                <p class="text-gray-300 mt-2">Switching is enabled. The bot will refresh this session automatically.</p>
+            {% else %}
+                <p class="text-yellow-300 mt-2">Session is present but may not allow tariff switches. Sign in with your Octopus email and password.</p>
+            {% endif %}
+            {% if status.refresh_expires_at %}
+                <p class="text-gray-500 text-sm mt-2">Refresh token expires {{ status.refresh_expires_at }}</p>
+            {% endif %}
+            <form method="POST" action="auth/logout" class="mt-4">
+                <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
+                    Disconnect
+                </button>
+            </form>
+        {% else %}
+            <p class="text-yellow-300 font-semibold">Not connected for switching</p>
+            <p class="text-gray-400 mt-2">The API key can still compare tariffs. Switching needs a one-time sign-in so the bot can store a refresh token.</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <h3 class="text-xl font-bold text-gray-100 mb-4">Sign in to Octopus</h3>
+        <p class="text-gray-400 text-sm mb-4">
+            Use the same email and password as the Octopus app. The password is sent to Octopus and is not saved.
+            The bot keeps a refresh token on disk for later runs.
+        </p>
+        <form method="POST" class="space-y-4">
+            <div>
+                <label class="block text-gray-300 mb-2" for="email">Octopus email</label>
+                <input type="email" id="email" name="email" required autocomplete="username"
+                       class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-gray-300 mb-2" for="password">Octopus password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password"
+                       class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+            </div>
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200">
+                Sign in
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

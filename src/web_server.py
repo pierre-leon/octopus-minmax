@@ -3,6 +3,8 @@ from functools import wraps
 import config_manager
 import config
 import logging
+import session_store
+from query_service import QueryService
 
 logger = logging.getLogger('octobot.web_server')
 
@@ -33,7 +35,37 @@ def require_auth(f):
 @require_auth
 def index():
     """Homepage - Dashboard with navigation buttons"""
-    return render_template('index.html')
+    return render_template('index.html', auth_status=session_store.public_status())
+
+
+@app.route('/auth', methods=['GET', 'POST'])
+@require_auth
+def auth_page():
+    if request.method == 'POST':
+        email = (request.form.get('email') or '').strip()
+        password = request.form.get('password') or ''
+        if not email or not password:
+            flash('Email and password are required.', 'error')
+        else:
+            try:
+                query_service = QueryService(config.API_KEY, config.BASE_URL)
+                query_service.login_with_password(email, password)
+                flash('Octopus login saved. The bot will refresh this session automatically.', 'success')
+            except Exception as e:
+                logger.error(f"Octopus login failed: {e}")
+                flash(f'Octopus login failed: {e}', 'error')
+        return redirect('auth')
+
+    return render_template('auth.html', status=session_store.public_status())
+
+
+@app.route('/auth/logout', methods=['POST'])
+@require_auth
+def auth_logout():
+    session_store.clear()
+    QueryService.invalidate_token_cache()
+    flash('Octopus session disconnected.', 'success')
+    return redirect('auth')
 
 
 @app.route('/config', methods=['GET', 'POST'])

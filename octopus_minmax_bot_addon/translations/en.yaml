@@ -33,3 +33,6 @@ configuration:
   SEND_COMPARISON_CHART:
     name: Send Comparison Chart
     description: Attach a stacked standing-charge vs usage chart to the daily notification. Turn off to send text only.
+  DASHBOARD_URL:
+    name: Dashboard URL
+    description: Public URL of this add-on, used in login notifications (for example http://homeassistant.local:5050). Leave blank if you only use the Home Assistant sidebar.

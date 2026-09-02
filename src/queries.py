@@ -1,8 +1,13 @@
-token_query = """mutation {{
-	obtainKrakenToken(input: {{ APIKey: "{api_key}" }}) {{
-	    token
-	}}
-}}"""
+token_mutation = """
+mutation obtainKrakenToken($input: ObtainJSONWebTokenInput!) {
+  obtainKrakenToken(input: $input) {
+    token
+    refreshToken
+    refreshExpiresIn
+    payload
+  }
+}
+"""
 
 accept_terms_query = """mutation {{
     acceptTermsAndConditions(input: {{

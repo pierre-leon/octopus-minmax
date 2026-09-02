@@ -14,6 +14,7 @@ I personally have this running automatically every day at 11 PM inside a Raspber
 After starting the bot you can access the web dashboard on `localhost:5050`
 
 - Make changes to your config through the dashboard without needing to restart
+- Sign in to Octopus once so the bot can switch tariffs (API keys can no longer start a switch)
 - Access and read logs
 - See graph of savings (coming soon)
 
@@ -54,6 +55,7 @@ docker run -d \
   --name MinMaxOctopusBot \
   -p 5050:5050 \
   -v ./logs:/app/logs \
+  -v ./data:/app/data \
   -e ACC_NUMBER="<your_account_number>" \
   -e API_KEY="<your_api_key>" \
   -e EXECUTION_TIME="23:00" \
@@ -67,6 +69,7 @@ docker run -d \
   -e SEND_COMPARISON_CHART=true \
   -e WEB_USERNAME="<whatever_you_want>" \
   -e WEB_PASSWORD="<whatever_you_want>" \
+  -e DASHBOARD_URL="http://<your-host>:5050" \
   eelmafia/octopus-minmax-bot
 ```
 or use the docker-compose.yaml **Don't forget to add your environment variables**
@@ -89,8 +92,15 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `WEB_USERNAME`              | (Optional) Defaults to `admin`. Auth for the web dashboard.
 | `WEB_PASSWORD`              | (Optional) Defaults to `admin`. Auth for the web dashboard.
 | `WEB_PORT`                  | (Optional) Defaults to `5050`.
+| `DASHBOARD_URL`             | (Optional) Public URL of the dashboard, used in login notifications. Example: `http://192.168.1.10:5050`.
 
 *Reminder: Change the password to something else other than default. It's not meant to be secure, it's just there to stop others on your network from accessing the dashboard and your API key. If they have access to your compose/config files you're already cooked.*
+
+#### Octopus Login (required for switching)
+
+Octopus API keys can still compare tariffs but are no longer allowed to call `startOnboardingProcess`. After the bot starts, open **Octopus Login** in the dashboard (or tap the notification link) and sign in with your Octopus email and password. The bot stores a refresh token in `data/octopus_session.json` (or `/data` on Home Assistant) and uses that for later runs. Your password is not saved.
+
+If Octopus asks for a captcha or this GraphQL login is removed, sign-in will fail and you will need to log in again from the dashboard.
 
 #### Supported Tariffs
 

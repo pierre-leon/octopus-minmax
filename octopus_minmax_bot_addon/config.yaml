@@ -34,6 +34,7 @@ options:
   SEND_COMPARISON_CHART: true
   WEB_USERNAME: "admin"
   WEB_PASSWORD: "admin"
+  DASHBOARD_URL: ""
 schema:
   API_KEY: str
   ACC_NUMBER: str
@@ -48,3 +49,4 @@ schema:
   SEND_COMPARISON_CHART: bool
   WEB_USERNAME: str
   WEB_PASSWORD: password
+  DASHBOARD_URL: str
