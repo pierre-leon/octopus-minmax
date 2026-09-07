@@ -93,14 +93,17 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `WEB_PASSWORD`              | (Optional) Defaults to `admin`. Auth for the web dashboard.
 | `WEB_PORT`                  | (Optional) Defaults to `5050`.
 | `DASHBOARD_URL`             | (Optional) Public URL of the dashboard, used in login notifications. Example: `http://192.168.1.10:5050`.
+| `OAUTH_CLIENT_ID`           | (Optional) Override the GraphQL IDE OAuth client id. Default is Octopus's public IDE client.
 
 *Reminder: Change the password to something else other than default. It's not meant to be secure, it's just there to stop others on your network from accessing the dashboard and your API key. If they have access to your compose/config files you're already cooked.*
 
 #### Octopus Login (required for switching)
 
-Octopus API keys can still compare tariffs but are no longer allowed to call `startOnboardingProcess`. After the bot starts, open **Octopus Login** in the dashboard (or tap the notification link) and sign in with your Octopus email and password. The bot stores a refresh token in `data/octopus_session.json` (or `/data` on Home Assistant) and uses that for later runs. Your password is not saved.
+Octopus API keys can still compare tariffs but are no longer allowed to call `startOnboardingProcess`. Switching uses the same OAuth client as the [GraphQL IDE](https://api.octopus.energy/v1/graphql/) (`full-customer-access`). After the bot starts, open **Octopus Login** and click **Sign in with Octopus**. You will be sent to Octopus, then to the GraphQL IDE (their redirect URI is fixed). Paste the `code=` URL or the `refresh_token` back into the dashboard.
 
-If Octopus asks for a captcha or this GraphQL login is removed, sign-in will fail and you will need to log in again from the dashboard.
+The bot stores that refresh token in `data/octopus_session.json` (or `/data` on Home Assistant) and refreshes it on each comparison run. Your password is not saved.
+
+You can also paste a `refresh_token` you already obtained in the GraphQL IDE. Do not paste access tokens (they expire in an hour).
 
 #### Supported Tariffs
 

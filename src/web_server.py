@@ -3,6 +3,7 @@ from functools import wraps
 import config_manager
 import config
 import logging
+import oauth_client
 import session_store
 from query_service import QueryService
 
@@ -42,27 +43,59 @@ def index():
 @require_auth
 def auth_page():
     if request.method == 'POST':
-        email = (request.form.get('email') or '').strip()
-        password = request.form.get('password') or ''
-        if not email or not password:
-            flash('Email and password are required.', 'error')
-        else:
-            try:
-                query_service = QueryService(config.API_KEY, config.BASE_URL)
+        intent = request.form.get('intent') or ''
+        query_service = QueryService(config.API_KEY, config.BASE_URL)
+        try:
+            if intent == 'oauth_complete':
+                paste = request.form.get('oauth_paste') or ''
+                status = query_service.complete_oauth_paste(paste)
+                expiry = status.get('refresh_expires_at')
+                if expiry:
+                    flash(f'Octopus OAuth saved. Refresh token reported until {expiry}.', 'success')
+                else:
+                    flash(
+                        'Octopus OAuth saved. Octopus did not report refresh expiry; '
+                        'the bot will refresh on each comparison run.',
+                        'success'
+                    )
+            elif intent == 'password':
+                email = (request.form.get('email') or '').strip()
+                password = request.form.get('password') or ''
+                if not email or not password:
+                    raise Exception('Email and password are required.')
                 query_service.login_with_password(email, password)
-                flash('Octopus login saved. The bot will refresh this session automatically.', 'success')
-            except Exception as e:
-                logger.error(f"Octopus login failed: {e}")
-                flash(f'Octopus login failed: {e}', 'error')
+                flash('Octopus GraphQL login saved. This grant still cannot start a switch.', 'success')
+            else:
+                flash('Unknown sign-in action.', 'error')
+        except Exception as e:
+            logger.error(f"Octopus login failed: {e}")
+            flash(f'Octopus login failed: {e}', 'error')
         return redirect('auth')
 
-    return render_template('auth.html', status=session_store.public_status())
+    pending = session_store.load_pending_oauth() or {}
+    return render_template(
+        'auth.html',
+        status=session_store.public_status(),
+        pending_oauth=pending,
+        authorize_url=pending.get('authorize_url'),
+        open_authorize=request.args.get('oauth') == 'start',
+    )
+
+
+@app.route('/auth/oauth/start', methods=['POST'])
+@require_auth
+def auth_oauth_start():
+    pending = oauth_client.create_pkce_flow()
+    session_store.save_pending_oauth(pending)
+    flash('Sign in on the Octopus tab, then paste the GraphQL URL (or code / refresh token) below.', 'success')
+    return redirect('auth?oauth=start')
 
 
 @app.route('/auth/logout', methods=['POST'])
 @require_auth
 def auth_logout():
     session_store.clear()
+    session_store.clear_pending_oauth()
     QueryService.invalidate_token_cache()
     flash('Octopus session disconnected.', 'success')
     return redirect('auth')

@@ -39,3 +39,6 @@ DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").rstrip("/")
 # Optional one-time bootstrap. Prefer the dashboard Octopus Login page; password is not stored.
 OCTOPUS_EMAIL = os.getenv("OCTOPUS_EMAIL", "")
 OCTOPUS_PASSWORD = os.getenv("OCTOPUS_PASSWORD", "")
+# Auth-server refresh token from the GraphQL IDE (or your own OAuth app). Not the API key.
+OAUTH_REFRESH_TOKEN = os.getenv("OAUTH_REFRESH_TOKEN", "")
+OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "")

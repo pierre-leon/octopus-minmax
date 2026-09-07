@@ -24,9 +24,10 @@ def octopus_login_url() -> str:
 
 def switch_login_needed_message() -> str:
     return (
-        "Tariff switching needs a one-time Octopus login (API keys can no longer start a switch).\n"
+        "Tariff switching needs a one-time Octopus OAuth login (API keys cannot start a switch).\n"
         f"Open: {octopus_login_url()}\n"
-        "Sign in with your Octopus email and password. The bot stores a refresh token, not your password."
+        "Use Sign in with Octopus, then paste the GraphQL URL code or refresh token. "
+        "The bot stores the refresh token, not your password."
     )
 
 class BotOrchestrator:
@@ -64,6 +65,13 @@ class BotOrchestrator:
                     self._run_tariff_compare()
 
             time.sleep(30)
+            # OAuth keepalive every 6 hours — off unless refresh tokens prove shorter than a daily run.
+            # try:
+            #     qs = self.query_service or QueryService(config.API_KEY, config.BASE_URL)
+            #     self.query_service = qs
+            #     qs.maybe_keepalive_oauth()
+            # except Exception as e:
+            #     logger.warning(f"OAuth keepalive skipped: {e}")
 
     def _initialize(self) -> None:
         logger.debug(f"{__name__}")

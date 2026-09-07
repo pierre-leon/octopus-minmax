@@ -6,6 +6,7 @@ import threading
 from typing import Optional
 
 import config
+import oauth_client
 import session_store
 
 logger = logging.getLogger('octobot.query_service')
@@ -78,10 +79,77 @@ class QueryService:
         logger.info(f"Logged in as Octopus customer ({session.get('email') or email})")
         return session_store.public_status()
 
+    def _apply_oauth_token_response(self, data: dict, previous: Optional[dict] = None) -> str:
+        if not data.get("refresh_token") and not (previous or {}).get("refresh_token"):
+            raise Exception("OAuth response did not include a refresh token")
+        session = session_store.session_from_oauth_response(data, previous)
+        session_store.save(session)
+        session_store.clear_pending_oauth()
+        access_token = data["access_token"]
+        with _token_lock:
+            QueryService._shared_token = access_token
+            QueryService._auth_source = "customer"
+        expires = session.get("refresh_expires_in")
+        if expires:
+            logger.info(f"OAuth session saved; refresh reported until unix {expires}")
+        else:
+            logger.info("OAuth session saved; Octopus did not report refresh token expiry")
+        return access_token
+
+    def login_with_oauth_refresh_token(self, refresh_token: str) -> dict:
+        data = oauth_client.refresh_access_token(refresh_token)
+        self._apply_oauth_token_response(data, {"refresh_token": refresh_token})
+        return session_store.public_status()
+
+    def login_with_authorization_code(self, code: str) -> dict:
+        pending = session_store.load_pending_oauth()
+        if not pending or not pending.get("code_verifier"):
+            raise Exception(
+                "No in-progress Octopus sign-in on this bot. Click Sign in with Octopus first, "
+                "then paste the code from the GraphQL URL."
+            )
+        data = oauth_client.exchange_authorization_code(code, pending["code_verifier"])
+        self._apply_oauth_token_response(data, {"scope": pending.get("scope")})
+        return session_store.public_status()
+
+    def complete_oauth_paste(self, raw: str) -> dict:
+        parsed = oauth_client.parse_oauth_paste(raw)
+        if parsed["kind"] == "refresh":
+            return self.login_with_oauth_refresh_token(parsed["value"])
+        return self.login_with_authorization_code(parsed["value"])
+
+    def refresh_oauth_session(self, clear_on_failure: bool = True) -> str:
+        session = session_store.load()
+        if not session_store.is_oauth_session(session):
+            raise Exception("No OAuth session to refresh")
+        try:
+            data = oauth_client.refresh_access_token(session["refresh_token"])
+            return self._apply_oauth_token_response(data, session)
+        except Exception as e:
+            logger.warning(f"OAuth refresh failed: {e}")
+            if clear_on_failure:
+                session_store.clear()
+                QueryService.invalidate_token_cache()
+                raise Exception(
+                    "Octopus OAuth login expired. Open the dashboard Octopus Login page and sign in again."
+                ) from e
+            raise
+
+    def maybe_keepalive_oauth(self) -> None:
+        if not session_store.oauth_keepalive_due():
+            return
+        logger.info("Refreshing OAuth session (keepalive)")
+        self.refresh_oauth_session(clear_on_failure=False)
+
     def _get_token(self):
         logger.debug("Getting token")
         try:
             session = session_store.load()
+            if session_store.is_oauth_session(session) and session.get("refresh_token"):
+                token = self.refresh_oauth_session(clear_on_failure=True)
+                logger.info("Acquired token via OAuth refresh token")
+                return token
+
             if session and session.get("refresh_token"):
                 try:
                     data = self.obtain_kraken_token(refreshToken=session["refresh_token"])
@@ -96,7 +164,7 @@ class QueryService:
                             updated["email"] = session.get("email")
                         session_store.save(updated)
                     QueryService._auth_source = "customer" if session.get("can_switch") else "api_key"
-                    logger.info("Acquired token via refresh token")
+                    logger.info("Acquired token via Kraken refresh token")
                     return token
                 except Exception as e:
                     logger.warning(f"Refresh token failed: {e}")
@@ -105,6 +173,11 @@ class QueryService:
                         raise Exception(
                             "Octopus login expired. Open the dashboard Octopus Login page and sign in again."
                         ) from e
+
+            if config.OAUTH_REFRESH_TOKEN:
+                self.login_with_oauth_refresh_token(config.OAUTH_REFRESH_TOKEN)
+                logger.info("Bootstrapped OAuth session from OAUTH_REFRESH_TOKEN")
+                return QueryService._shared_token
 
             if config.OCTOPUS_EMAIL and config.OCTOPUS_PASSWORD:
                 self.login_with_password(config.OCTOPUS_EMAIL, config.OCTOPUS_PASSWORD)
