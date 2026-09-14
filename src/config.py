@@ -36,9 +36,11 @@ WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 WEB_PORT = int(os.getenv("WEB_PORT", 5050))
 # Public URL of the dashboard, used in login notifications (e.g. http://192.168.1.10:5050)
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "").rstrip("/")
-# Optional one-time bootstrap. Prefer the dashboard Octopus Login page; password is not stored.
+# Octopus website login. Needed to renew the session that authorises tariff switches;
+# the enrolment API accepts only a browser login, not API keys or OAuth tokens.
 OCTOPUS_EMAIL = os.getenv("OCTOPUS_EMAIL", "")
 OCTOPUS_PASSWORD = os.getenv("OCTOPUS_PASSWORD", "")
-# Auth-server refresh token from the GraphQL IDE (or your own OAuth app). Not the API key.
-OAUTH_REFRESH_TOKEN = os.getenv("OAUTH_REFRESH_TOKEN", "")
-OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "")
+
+# The website session is renewed at the end of each nightly run. Renew once it has
+# this many days left of its 7-day life, so a failure leaves that many nights to fix.
+SESSION_RENEWAL_LEAD_DAYS = int(os.getenv("SESSION_RENEWAL_LEAD_DAYS", 2))

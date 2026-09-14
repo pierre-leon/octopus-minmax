@@ -4,7 +4,7 @@ class Tariff:
     def __init__(self,
                  id: str, display_name: str, api_display_name: str, tariff_code_matcher: str,
                  url_tariff_name: str, switchable: bool, product_code: str = None,
-                 can_leave: bool = True):
+                 can_leave: bool = True, journey: str = None, journey_variant: str = None):
         self.id = id  # Represents the unique identifier for the tariff.
         self.display_name = display_name  # The user-friendly name of the tariff for display purposes.
         self.api_display_name = api_display_name  # The name used for API interactions with the tariff.
@@ -14,6 +14,10 @@ class Tariff:
         self.product_code = product_code # Product code used in API e.g. "GO-VAR-22-10-14"
         # Whether the bot is allowed to switch away from this tariff (False for locked/unknown products).
         self.can_leave = can_leave
+        # Journey name used by the smart enrolment API, e.g. "AGILE". Octopus picks the
+        # product for a journey, so the enrolment code checks it against product_code.
+        self.journey = journey
+        self.journey_variant = journey_variant
 
     @classmethod
     def unrecognised(cls, tariff_code: str, product_code: str = None, display_name: str = None) -> "Tariff":
@@ -52,10 +56,10 @@ class Tariff:
 
 
 TARIFFS = [
-    Tariff("go", "Octopus Go", "Octopus Go", r"-go-var-", "go", True), # Octopus Go (Variable)
-    Tariff("go-fix-12m", "Octopus Go 12M Fixed", "Octopus Go 12M Fixed", r"-go-fix-", "go", True, can_leave=False),
-    Tariff("agile", "Agile Octopus", "Agile Octopus", r"-agile-", "agile", True), # Octopus Agile
-    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", r"-cosy-(?!.*fix)", r"cosy-octopus", True), # Octopus Cosy (Variable is the default so don't match anything with 'fix' in the name)
+    Tariff("go", "Octopus Go", "Octopus Go", r"-go-var-", "go", True, journey="GO"), # Octopus Go (Variable)
+    Tariff("go-fix-12m", "Octopus Go 12M Fixed", "Octopus Go 12M Fixed", r"-go-fix-", "go", True, can_leave=False, journey="GO"),
+    Tariff("agile", "Agile Octopus", "Agile Octopus", r"-agile-", "agile", True, journey="AGILE"), # Octopus Agile
+    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", r"-cosy-(?!.*fix)", r"cosy-octopus", True, journey="COSY"), # Octopus Cosy (Variable is the default so don't match anything with 'fix' in the name)
     Tariff("flexible", "Flexible Octopus", "Flexible Octopus", r"(?<!go-)var", "", False) # Flexible Octopus
 ]
 

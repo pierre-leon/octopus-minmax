@@ -133,19 +133,6 @@ enrolment_query = """query {{
   }}
 }}"""
 
-switch_query = """mutation {{
-  startOnboardingProcess(input: {{
-    accountNumber: "{account_number}",
-    mpan: "{mpan}",
-    productCode: "{product_code}",
-    targetAgreementChangeDate: "{change_date}"
-  }})
-  {{
-    onboardingProcess {{
-      id
-    }}
-    productEnrolment {{
-      id
-    }}
-  }}
-}}"""
+# startOnboardingProcess used to start switches, but Octopus now refuses it for every
+# customer credential (KT-CT-1111), including OAuth tokens carrying manage:product-enrolment.
+# Switches go through the website's enrolment API instead - see octopus_web.py.

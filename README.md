@@ -93,17 +93,23 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `WEB_PASSWORD`              | (Optional) Defaults to `admin`. Auth for the web dashboard.
 | `WEB_PORT`                  | (Optional) Defaults to `5050`.
 | `DASHBOARD_URL`             | (Optional) Public URL of the dashboard, used in login notifications. Example: `http://192.168.1.10:5050`.
-| `OAUTH_CLIENT_ID`           | (Optional) Override the GraphQL IDE OAuth client id. Default is Octopus's public IDE client.
+| `OCTOPUS_EMAIL`             | (Optional) Octopus website login. Lets the bot renew the switching session by itself. Can be entered in the dashboard instead.
+| `OCTOPUS_PASSWORD`          | (Optional) Password for the above.
+| `SESSION_RENEWAL_LEAD_DAYS` | (Optional) Renew the switching session once it has this many days left. Default `2`.
 
 *Reminder: Change the password to something else other than default. It's not meant to be secure, it's just there to stop others on your network from accessing the dashboard and your API key. If they have access to your compose/config files you're already cooked.*
 
 #### Octopus Login (required for switching)
 
-Octopus API keys can still compare tariffs but are no longer allowed to call `startOnboardingProcess`. Switching uses the same OAuth client as the [GraphQL IDE](https://api.octopus.energy/v1/graphql/) (`full-customer-access`). After the bot starts, open **Octopus Login** and click **Sign in with Octopus**. You will be sent to Octopus, then to the GraphQL IDE (their redirect URI is fixed). Paste the `code=` URL or the `refresh_token` back into the dashboard.
+Your API key still covers comparisons and accepting terms, but it can no longer start a switch: Octopus rejects `startOnboardingProcess` with `KT-CT-1111` for every customer credential, including OAuth tokens that carry `manage:product-enrolment`. Switches now go through the same enrolment API the Octopus website uses, and that API accepts only a website login session — no API key, no OAuth token.
 
-The bot stores that refresh token in `data/octopus_session.json` (or `/data` on Home Assistant) and refreshes it on each comparison run. Your password is not saved.
+So the bot logs in with a browser. Open **Octopus Login** in the dashboard, enter your Octopus email and password, and it signs in for you and stores the session. Tick the save option (or set `OCTOPUS_EMAIL` / `OCTOPUS_PASSWORD`) and it renews the session on its own.
 
-You can also paste a `refresh_token` you already obtained in the GraphQL IDE. Do not paste access tokens (they expire in an hour).
+The session lasts 7 days and Octopus does not extend it on use, so the bot checks it at the end of every nightly run and signs in again once fewer than `SESSION_RENEWAL_LEAD_DAYS` remain. Doing it there means the outcome arrives alongside the comparison results you already read, and a failure still leaves that many nights to sort out before switching is affected. Comparisons keep running regardless — only switching depends on the session.
+
+The session lives in `data/octopus_web_session.json` (or `/data` on Home Assistant). Saved credentials sit beside it in `octopus_web_credentials.json`, restricted to the bot.
+
+The enrolment API is journey-based rather than product-based, so Octopus decides which product a journey currently sells and that is sometimes a fixed-term one. Before enrolling, the bot checks the product Octopus offers against the product your comparison chose and refuses to continue if they differ, which is what keeps it from landing you on a fix.
 
 #### Supported Tariffs
 

@@ -2,7 +2,9 @@ import time
 from datetime import date, datetime
 from typing import List, Dict, Optional, Tuple
 import random
+import browser_login
 import config
+import web_session
 from account_info import AccountInfo
 from account_manager import AccountManager
 from queries import *
@@ -24,10 +26,11 @@ def octopus_login_url() -> str:
 
 def switch_login_needed_message() -> str:
     return (
-        "Tariff switching needs a one-time Octopus OAuth login (API keys cannot start a switch).\n"
-        f"Open: {octopus_login_url()}\n"
-        "Use Sign in with Octopus, then paste the GraphQL URL code or refresh token. "
-        "The bot stores the refresh token, not your password."
+        "Tariff switching needs an Octopus website session, which only a browser login can create "
+        "(API keys and OAuth tokens are refused by the enrolment API).\n"
+        "Set OCTOPUS_EMAIL and OCTOPUS_PASSWORD in the add-on configuration and the bot will "
+        "renew the session itself.\n"
+        f"Dashboard: {octopus_login_url()}"
     )
 
 class BotOrchestrator:
@@ -45,8 +48,7 @@ class BotOrchestrator:
 
         mode_msg = "ONE_OFF mode enabled" if config.ONE_OFF_RUN else f"Scheduled mode, running at {config.EXECUTION_TIME}"
         ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - {mode_msg} \n Check port {config.WEB_PORT} for dashboard.")
-        if not QueryService.has_switch_auth():
-            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
+        self._renew_web_session_if_due(reason="startup")
 
         while True:
             if config.ONE_OFF_RUN and not config.ONE_OFF_EXECUTED:
@@ -65,13 +67,49 @@ class BotOrchestrator:
                     self._run_tariff_compare()
 
             time.sleep(30)
-            # OAuth keepalive every 6 hours — off unless refresh tokens prove shorter than a daily run.
-            # try:
-            #     qs = self.query_service or QueryService(config.API_KEY, config.BASE_URL)
-            #     self.query_service = qs
-            #     qs.maybe_keepalive_oauth()
-            # except Exception as e:
-            #     logger.warning(f"OAuth keepalive skipped: {e}")
+
+    def _renew_web_session_if_due(self, reason: str) -> bool:
+        """Refresh the website session well before it lapses.
+
+        Octopus issues it for 7 days and never extends it. Renewing right after
+        the nightly run means the result arrives in the same notification batch
+        you already read, with SESSION_RENEWAL_LEAD_DAYS nights left to fix it.
+        """
+        ns = self.notification_service
+        status = web_session.public_status()
+
+        if not web_session.needs_renewal(config.SESSION_RENEWAL_LEAD_DAYS):
+            remaining = status.get("remaining_days")
+            logger.info(f"Website session still valid for {remaining:.1f} days; no renewal needed")
+            return True
+
+        email, password = web_session.credentials()
+        if not (email and password):
+            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
+            return False
+
+        logger.info(f"Renewing Octopus website session ({reason})")
+        try:
+            cookie, expires_at = browser_login.fetch_web_session(email, password)
+        except Exception as e:
+            logger.error(f"Website session renewal failed: {e}")
+            ns.send_notification(
+                f"Could not renew the Octopus website session, so tariff switching is offline.\n"
+                f"{e}\n"
+                f"Comparisons continue as normal. Dashboard: {octopus_login_url()}",
+                title="Octopus Session Renewal Failed",
+                is_error=True,
+                batchable=False,
+            )
+            return False
+
+        web_session.save(cookie, expires_at, email=email)
+        expiry_text = expires_at.strftime("%d/%m/%Y %H:%M UTC") if expires_at else "an unknown date"
+        ns.send_notification(
+            f"Octopus website session renewed. Valid until {expiry_text}.",
+            batchable=False,
+        )
+        return True
 
     def _initialize(self) -> None:
         logger.debug(f"{__name__}")
@@ -108,6 +146,9 @@ class BotOrchestrator:
         finally:
             if config.BATCH_NOTIFICATIONS:
                 ns.send_batch_notification()
+            # Last thing of the night, so any renewal failure lands next to the
+            # comparison results rather than at some hour nobody is watching.
+            self._renew_web_session_if_due(reason="after nightly run")
 
     def _format_comparison_summary(self, result: ComparisonResult) -> str:
         lines = []
@@ -196,7 +237,7 @@ class BotOrchestrator:
             switch_message = f"Initiating Switch to {results.cheapest_tariff.display_name}"
             ns.send_notification(switch_message)
             if config.DRY_RUN:
-                ns.send_notification("DRY RUN: Not going through with switch today.")
+                self._preview_switch(results.cheapest_tariff)
             elif not QueryService.has_switch_auth():
                 ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
             else:
@@ -204,15 +245,35 @@ class BotOrchestrator:
         else:
             ns.send_notification(self._format_no_switch_message(results))
 
+    def _preview_switch(self, target_tariff: Tariff) -> None:
+        """Run every pre-flight check and show the request, without sending it."""
+        ns = self.notification_service
+        if not QueryService.has_switch_auth():
+            ns.send_notification(
+                "DRY RUN: no valid Octopus website session, so a real switch would be skipped."
+            )
+            return
+        try:
+            plan = self.account_manager.prepare_tariff_switch(target_tariff)
+        except Exception as e:
+            ns.send_notification(f"DRY RUN: a real switch would have failed here - {e}")
+            return
+
+        ns.send_notification(
+            "DRY RUN: not switching today. The request would have been:\n"
+            f"journey={plan['journey']} propertyId={plan['property_id']} mpan={plan['mpan']}\n"
+            f"product={plan['product_code']} (matches the tariff the comparison chose)"
+        )
+
     def _execute_switch(self, target_tariff: Tariff, account_info: AccountInfo) -> None:
         ns = self.notification_service
 
-        if not target_tariff.product_code:
-            ns.send_notification("ERROR: product_code is missing.")
-
-        enrolment_id = self.account_manager.initiate_tariff_switch(target_tariff.product_code)
+        enrolment_id = self.account_manager.initiate_tariff_switch(target_tariff)
         if not enrolment_id:
-            ns.send_notification("ERROR: Couldn't get enrolment ID")
+            ns.send_notification(
+                "Switch was requested but no enrolment appeared on the account. "
+                "Check your email - Octopus may still have sent the terms to accept."
+            )
             return
 
         wait_time = 120

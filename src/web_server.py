@@ -1,10 +1,10 @@
 from flask import Flask, render_template, request, redirect, flash, Response
 from functools import wraps
+import browser_login
 import config_manager
 import config
 import logging
-import oauth_client
-import session_store
+import web_session
 from query_service import QueryService
 
 logger = logging.getLogger('octobot.web_server')
@@ -36,7 +36,14 @@ def require_auth(f):
 @require_auth
 def index():
     """Homepage - Dashboard with navigation buttons"""
-    return render_template('index.html', auth_status=session_store.public_status())
+    return render_template('index.html', auth_status=web_session.public_status())
+
+
+def _run_browser_login(email: str, password: str) -> None:
+    cookie, expires_at = browser_login.fetch_web_session(email, password)
+    web_session.save(cookie, expires_at, email=email)
+    expiry_text = expires_at.strftime('%d/%m/%Y %H:%M UTC') if expires_at else 'an unknown date'
+    flash(f'Signed in to Octopus. Session valid until {expiry_text}.', 'success')
 
 
 @app.route('/auth', methods=['GET', 'POST'])
@@ -44,60 +51,47 @@ def index():
 def auth_page():
     if request.method == 'POST':
         intent = request.form.get('intent') or ''
-        query_service = QueryService(config.API_KEY, config.BASE_URL)
         try:
-            if intent == 'oauth_complete':
-                paste = request.form.get('oauth_paste') or ''
-                status = query_service.complete_oauth_paste(paste)
-                expiry = status.get('refresh_expires_at')
-                if expiry:
-                    flash(f'Octopus OAuth saved. Refresh token reported until {expiry}.', 'success')
-                else:
-                    flash(
-                        'Octopus OAuth saved. Octopus did not report refresh expiry; '
-                        'the bot will refresh on each comparison run.',
-                        'success'
-                    )
-            elif intent == 'password':
+            if intent == 'login':
                 email = (request.form.get('email') or '').strip()
                 password = request.form.get('password') or ''
                 if not email or not password:
                     raise Exception('Email and password are required.')
-                query_service.login_with_password(email, password)
-                flash('Octopus GraphQL login saved. This grant still cannot start a switch.', 'success')
+                # Stored so the bot can renew the 7-day session without you.
+                if request.form.get('remember'):
+                    web_session.save_credentials(email, password)
+                _run_browser_login(email, password)
+            elif intent == 'renew':
+                email, password = web_session.credentials()
+                if not email or not password:
+                    raise Exception('No saved credentials. Sign in with email and password first.')
+                _run_browser_login(email, password)
             else:
                 flash('Unknown sign-in action.', 'error')
         except Exception as e:
-            logger.error(f"Octopus login failed: {e}")
+            logger.error(f"Octopus website login failed: {e}")
             flash(f'Octopus login failed: {e}', 'error')
         return redirect('auth')
 
-    pending = session_store.load_pending_oauth() or {}
+    saved_email, _ = web_session.credentials()
     return render_template(
         'auth.html',
-        status=session_store.public_status(),
-        pending_oauth=pending,
-        authorize_url=pending.get('authorize_url'),
-        open_authorize=request.args.get('oauth') == 'start',
+        status=web_session.public_status(),
+        saved_email=saved_email,
+        has_credentials=web_session.has_credentials(),
+        credentials_from_config=bool(config.OCTOPUS_EMAIL and config.OCTOPUS_PASSWORD),
+        renewal_lead_days=config.SESSION_RENEWAL_LEAD_DAYS,
+        execution_time=config.EXECUTION_TIME,
     )
-
-
-@app.route('/auth/oauth/start', methods=['POST'])
-@require_auth
-def auth_oauth_start():
-    pending = oauth_client.create_pkce_flow()
-    session_store.save_pending_oauth(pending)
-    flash('Sign in on the Octopus tab, then paste the GraphQL URL (or code / refresh token) below.', 'success')
-    return redirect('auth?oauth=start')
 
 
 @app.route('/auth/logout', methods=['POST'])
 @require_auth
 def auth_logout():
-    session_store.clear()
-    session_store.clear_pending_oauth()
+    web_session.clear()
+    web_session.clear_credentials()
     QueryService.invalidate_token_cache()
-    flash('Octopus session disconnected.', 'success')
+    flash('Octopus session and saved credentials removed.', 'success')
     return redirect('auth')
 
 

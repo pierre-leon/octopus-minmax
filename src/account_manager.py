@@ -3,15 +3,22 @@ from datetime import date, datetime
 from typing import Optional, List, Dict
 import logging
 import config
+import web_session
 from account_info import AccountInfo
 from tariff import Tariff, match_known_tariff
 from query_service import QueryService
+from octopus_web import (
+    OctopusWebClient,
+    ineligibility_reasons,
+    matching_candidate,
+    offered_product_code,
+)
 from queries import (
     get_terms_version_query,
     accept_terms_query,
     account_query,
     consumption_query,
-    switch_query
+    enrolment_query
 )
 
 logger = logging.getLogger('octobot.account_manager')
@@ -150,24 +157,103 @@ class AccountManager:
         )
         return self._current_account_info
 
-    def initiate_tariff_switch(self, target_product_code: str) -> Optional[str]:
-        """Initiates the process of switching to a new electricity tariff."""
+    def _web_client(self) -> OctopusWebClient:
+        cookie = web_session.cookie()
+        if not cookie:
+            raise Exception(
+                "No Octopus website session stored, so a switch cannot be started. "
+                "The bot renews this by logging in with a browser; check the session renewal notifications."
+            )
+        return OctopusWebClient(cookie, self.config.ACC_NUMBER)
+
+    def prepare_tariff_switch(self, target_tariff: Tariff) -> Dict:
+        """Resolve and validate everything a switch needs, without starting one.
+
+        Octopus picks the product for a journey, and that product is sometimes a
+        fixed-term one. Refusing any product the comparison did not choose is what
+        keeps the bot from enrolling onto a fix.
+        """
+        if not target_tariff.journey:
+            raise Exception(
+                f"{target_tariff.display_name} has no enrolment journey, so the bot cannot switch to it."
+            )
+        if not target_tariff.product_code:
+            raise Exception("ERROR: product_code is missing.")
         if not self.mpan:
-            # Attempt to fetch account details if MPAN is not already set
             logger.info("MPAN not readily available, fetching account details first...")
             self.fetch_current_account_info()
             if not self.mpan:
-                 raise Exception("ERROR: MPAN could not be determined. Cannot switch tariff.")
+                raise Exception("ERROR: MPAN could not be determined. Cannot switch tariff.")
 
-        change_date = date.today()
-        query = switch_query.format(
-            account_number=self.config.ACC_NUMBER,
-            mpan=self.mpan,
-            product_code=target_product_code,
-            change_date=change_date.isoformat() # Ensure date is in YYYY-MM-DD format
+        client = self._web_client()
+        data = client.enrolment_data(target_tariff.journey, target_tariff.journey_variant)
+
+        property_id = data.get("propertyId")
+        if not property_id:
+            raise Exception(f"Octopus did not return a propertyId for the {target_tariff.journey} journey.")
+
+        candidate = matching_candidate(data, self.mpan)
+        if candidate is None:
+            raise Exception(f"Meter {self.mpan} is not an enrolment candidate for {target_tariff.display_name}.")
+
+        if not data.get("isEligible") or not candidate.get("isEligible"):
+            reasons = ineligibility_reasons(data, candidate)
+            detail = f" Reasons: {'; '.join(reasons)}" if reasons else ""
+            raise Exception(
+                f"Octopus says the account is not eligible for {target_tariff.display_name} today."
+                f"{detail} This is also what an open enrolment looks like."
+            )
+
+        offered = offered_product_code(data)
+        if offered != target_tariff.product_code:
+            raise Exception(
+                f"Refusing to switch: the {target_tariff.journey} journey would enrol onto '{offered}', "
+                f"but the comparison chose '{target_tariff.product_code}'. "
+                "Octopus has changed what this journey sells (often to a fixed-term product)."
+            )
+
+        return {
+            "client": client,
+            "journey": target_tariff.journey,
+            "variant": target_tariff.journey_variant,
+            "property_id": property_id,
+            "mpan": self.mpan,
+            "product_code": offered,
+            "candidate": candidate,
+        }
+
+    def initiate_tariff_switch(self, target_tariff: Tariff) -> Optional[str]:
+        """Start the switch through the same enrolment API the website uses."""
+        plan = self.prepare_tariff_switch(target_tariff)
+        plan["client"].start_enrolment(
+            journey=plan["journey"],
+            property_id=plan["property_id"],
+            mpan=plan["mpan"],
         )
-        result = self.query_service.execute_gql_query(query)
-        return result.get("startOnboardingProcess", {}).get("productEnrolment", {}).get("id")
+        return self.find_pending_enrolment_id(plan["product_code"])
+
+    def find_pending_enrolment_id(self, product_code: str, attempts: int = 6,
+                                  delay_seconds: int = 10) -> Optional[str]:
+        """Look up the enrolment the REST call just created.
+
+        The enrolment API does not return an id, but acceptTermsAndConditions
+        needs one, so we read it back from GraphQL once Octopus has recorded it.
+        """
+        query = enrolment_query.format(acc_number=self.config.ACC_NUMBER)
+        for attempt in range(1, attempts + 1):
+            result = self.query_service.execute_gql_query(query)
+            enrolments = result.get("productEnrolments") or []
+            for enrolment in enrolments:
+                if (enrolment.get("product") or {}).get("code") == product_code:
+                    logger.info(
+                        f"Found enrolment {enrolment.get('id')} for {product_code} "
+                        f"(status {enrolment.get('status')})"
+                    )
+                    return enrolment.get("id")
+            logger.info(f"No enrolment for {product_code} yet (attempt {attempt}/{attempts})")
+            if attempt < attempts:
+                time.sleep(delay_seconds)
+        return None
 
     def accept_new_agreement(self, product_code: str, enrolment_id: str) -> Optional[str]:
         # get terms and conditions version
