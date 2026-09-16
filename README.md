@@ -93,9 +93,7 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `WEB_PASSWORD`              | (Optional) Defaults to `admin`. Auth for the web dashboard.
 | `WEB_PORT`                  | (Optional) Defaults to `5050`.
 | `DASHBOARD_URL`             | (Optional) Public URL of the dashboard, used in login notifications. Example: `http://192.168.1.10:5050`.
-| `OCTOPUS_EMAIL`             | (Optional) Octopus website login. Lets the bot renew the switching session by itself. Can be entered in the dashboard instead.
-| `OCTOPUS_PASSWORD`          | (Optional) Password for the above.
-| `SESSION_RENEWAL_LEAD_DAYS` | (Optional) Renew the switching session once it has this many days left. Default `2`.
+| `SESSION_RENEWAL_LEAD_DAYS` | (Optional) Warn that the switching session is running out once it has this many days left. Default `2`.
 
 *Reminder: Change the password to something else other than default. It's not meant to be secure, it's just there to stop others on your network from accessing the dashboard and your API key. If they have access to your compose/config files you're already cooked.*
 
@@ -103,11 +101,13 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 
 Your API key still covers comparisons and accepting terms, but it can no longer start a switch: Octopus rejects `startOnboardingProcess` with `KT-CT-1111` for every customer credential, including OAuth tokens that carry `manage:product-enrolment`. Switches now go through the same enrolment API the Octopus website uses, and that API accepts only a website login session — no API key, no OAuth token.
 
-So the bot logs in with a browser. Open **Octopus Login** in the dashboard, enter your Octopus email and password, and it signs in for you and stores the session. Tick the save option (or set `OCTOPUS_EMAIL` / `OCTOPUS_PASSWORD`) and it renews the session on its own.
+Nothing the bot can mint substitutes for that session. Password grants to `obtainKrakenToken` are now refused (`KT-CT-1161`), OAuth tokens are rejected by the enrolment API (`OE-0102`), pre-signed scoped tokens cannot be issued by a customer (`KT-CT-1111`), and a Kraken JWT in the `accessToken` cookie is read but never counts as logged in. Octopus also guards the login form with hCaptcha, which serves an image challenge to any automated browser, headless or not.
 
-The session lasts 7 days and Octopus does not extend it on use, so the bot checks it at the end of every nightly run and signs in again once fewer than `SESSION_RENEWAL_LEAD_DAYS` remain. Doing it there means the outcome arrives alongside the comparison results you already read, and a failure still leaves that many nights to sort out before switching is affected. Comparisons keep running regardless — only switching depends on the session.
+So the session is copied in by hand. Log in at octopus.energy, open developer tools, take the `octosession` cookie from **Application → Cookies**, and paste it into **Octopus Session** on the dashboard. The bot checks it with Octopus before storing it, so a bad paste fails immediately rather than at 11pm.
 
-The session lives in `data/octopus_web_session.json` (or `/data` on Home Assistant). Saved credentials sit beside it in `octopus_web_credentials.json`, restricted to the bot.
+It lasts 7 days and Octopus does not extend it on use, so the bot checks at the end of every nightly run and warns you once fewer than `SESSION_RENEWAL_LEAD_DAYS` remain. The warning arrives alongside your comparison results, leaving that many nights to paste a new one. Comparisons keep running regardless — only switching depends on the session.
+
+The session lives in `data/octopus_web_session.json` (or `/data` on Home Assistant).
 
 The enrolment API is journey-based rather than product-based, so Octopus decides which product a journey currently sells and that is sometimes a fixed-term one. Before enrolling, the bot checks the product Octopus offers against the product your comparison chose and refuses to continue if they differ, which is what keeps it from landing you on a fix.
 

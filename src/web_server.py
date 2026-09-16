@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request, redirect, flash, Response
 from functools import wraps
-import browser_login
 import config_manager
 import config
 import logging
+import octopus_web
 import web_session
 from query_service import QueryService
 
@@ -39,49 +39,53 @@ def index():
     return render_template('index.html', auth_status=web_session.public_status())
 
 
-def _run_browser_login(email: str, password: str) -> None:
-    cookie, expires_at = browser_login.fetch_web_session(email, password)
-    web_session.save(cookie, expires_at, email=email)
-    expiry_text = expires_at.strftime('%d/%m/%Y %H:%M UTC') if expires_at else 'an unknown date'
-    flash(f'Signed in to Octopus. Session valid until {expiry_text}.', 'success')
+def _clean_cookie(raw: str) -> str:
+    """Accept the cookie however it was copied: bare, name=value, or a header."""
+    value = (raw or '').strip().strip('"').strip("'")
+    if 'octosession=' in value:
+        value = value.split('octosession=', 1)[1]
+    return value.split(';', 1)[0].strip()
+
+
+def _store_session(raw: str) -> None:
+    cookie = _clean_cookie(raw)
+    if not cookie:
+        raise Exception('Paste the octosession cookie value.')
+
+    # Ask Octopus before saving, so a bad paste fails here and not at 11pm.
+    client = octopus_web.OctopusWebClient(cookie, config.ACC_NUMBER)
+    session = client.check_session()
+    if not session.get('isLoggedIn'):
+        raise Exception(
+            'Octopus does not recognise that session. Make sure you are logged in and copy the '
+            'current octosession value.'
+        )
+
+    expires_at = web_session.assumed_expiry()
+    web_session.save(cookie, expires_at, email=session.get('selectedAccount') or config.ACC_NUMBER)
+    flash(
+        f"Session accepted for account {session.get('selectedAccount') or config.ACC_NUMBER}. "
+        f"Good until about {expires_at.strftime('%d/%m/%Y %H:%M UTC')}.",
+        'success',
+    )
 
 
 @app.route('/auth', methods=['GET', 'POST'])
 @require_auth
 def auth_page():
     if request.method == 'POST':
-        intent = request.form.get('intent') or ''
         try:
-            if intent == 'login':
-                email = (request.form.get('email') or '').strip()
-                password = request.form.get('password') or ''
-                if not email or not password:
-                    raise Exception('Email and password are required.')
-                # Stored so the bot can renew the 7-day session without you.
-                if request.form.get('remember'):
-                    web_session.save_credentials(email, password)
-                _run_browser_login(email, password)
-            elif intent == 'renew':
-                email, password = web_session.credentials()
-                if not email or not password:
-                    raise Exception('No saved credentials. Sign in with email and password first.')
-                _run_browser_login(email, password)
-            else:
-                flash('Unknown sign-in action.', 'error')
+            _store_session(request.form.get('octosession') or '')
         except Exception as e:
-            logger.error(f"Octopus website login failed: {e}")
-            flash(f'Octopus login failed: {e}', 'error')
+            logger.error(f"Storing Octopus session failed: {e}")
+            flash(f'{e}', 'error')
         return redirect('auth')
 
-    saved_email, _ = web_session.credentials()
     return render_template(
         'auth.html',
         status=web_session.public_status(),
-        saved_email=saved_email,
-        has_credentials=web_session.has_credentials(),
-        credentials_from_config=bool(config.OCTOPUS_EMAIL and config.OCTOPUS_PASSWORD),
         renewal_lead_days=config.SESSION_RENEWAL_LEAD_DAYS,
-        execution_time=config.EXECUTION_TIME,
+        lifetime_days=web_session.LIFETIME_DAYS,
     )
 
 
@@ -89,9 +93,8 @@ def auth_page():
 @require_auth
 def auth_logout():
     web_session.clear()
-    web_session.clear_credentials()
     QueryService.invalidate_token_cache()
-    flash('Octopus session and saved credentials removed.', 'success')
+    flash('Octopus session removed.', 'success')
     return redirect('auth')
 
 

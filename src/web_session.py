@@ -1,12 +1,13 @@
 """Storage for the octopus.energy website session cookie.
 
 The enrolment endpoints behind /smart/api/ accept only a browser login session
-(the `octosession` cookie). That session cannot be minted from an API key, a
-Kraken token or any OAuth client, so the bot logs in with a real browser and
-keeps the cookie here until it nears expiry.
+(the `octosession` cookie). Nothing the bot can mint substitutes for it: API
+keys, password grants, OAuth tokens and pre-signed scoped tokens are all
+refused, and Octopus guards the login form with a captcha that challenges any
+automated browser. So the cookie is copied in by hand and kept here.
 
 Octopus issues it with a fixed 7-day lifetime and does not extend it on use, so
-the bot renews it ahead of time rather than waiting for a switch to fail.
+the bot warns ahead of expiry rather than waiting for a switch to fail.
 """
 
 import json
@@ -20,6 +21,19 @@ logger = logging.getLogger('octobot.web_session')
 
 _lock = threading.Lock()
 
+# Octopus sets the cookie with Max-Age=604800 and never extends it.
+LIFETIME_DAYS = 7
+
+
+def assumed_expiry() -> datetime:
+    """A pasted cookie carries no expiry, so date it from now.
+
+    It is normally copied out of a browser within minutes of logging in. If it
+    was older than that the bot simply finds out sooner that the session has
+    stopped working, and asks for another.
+    """
+    return datetime.now(timezone.utc) + timedelta(days=LIFETIME_DAYS)
+
 
 def web_session_path() -> str:
     override = os.getenv("WEB_SESSION_PATH", "").strip()
@@ -29,59 +43,6 @@ def web_session_path() -> str:
         return "/data/octopus_web_session.json"
     os.makedirs("data", exist_ok=True)
     return os.path.join("data", "octopus_web_session.json")
-
-
-def credentials_path() -> str:
-    return web_session_path().replace("octopus_web_session.json", "octopus_web_credentials.json")
-
-
-def save_credentials(email: str, password: str) -> None:
-    """Persist the login so renewals need no further interaction.
-
-    Renewal is a real browser login, so the password has to be stored
-    somewhere. It lives beside the session, readable only by the bot.
-    """
-    path = credentials_path()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp_path = f"{path}.tmp"
-    with _lock:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump({"email": email, "password": password}, f)
-        os.replace(tmp_path, path)
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
-    logger.info("Saved Octopus website credentials for automatic session renewal")
-
-
-def clear_credentials() -> None:
-    path = credentials_path()
-    with _lock:
-        if os.path.isfile(path):
-            os.remove(path)
-
-
-def credentials() -> tuple:
-    """(email, password) from the add-on configuration, else the dashboard login."""
-    import config
-    if config.OCTOPUS_EMAIL and config.OCTOPUS_PASSWORD:
-        return config.OCTOPUS_EMAIL, config.OCTOPUS_PASSWORD
-    path = credentials_path()
-    if not os.path.isfile(path):
-        return "", ""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("email") or "", data.get("password") or ""
-    except Exception as e:
-        logger.warning(f"Failed to read stored credentials: {e}")
-        return "", ""
-
-
-def has_credentials() -> bool:
-    email, password = credentials()
-    return bool(email and password)
 
 
 def load() -> Optional[dict]:

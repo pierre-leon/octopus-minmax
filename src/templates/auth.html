@@ -3,101 +3,74 @@
 {% block content %}
 <div class="max-w-xl mx-auto">
     <div class="flex justify-between items-center mb-6">
-        <h2 class="text-3xl font-bold text-gray-100">Octopus Login</h2>
+        <h2 class="text-3xl font-bold text-gray-100">Octopus Session</h2>
         <a href="." class="text-blue-400 hover:text-blue-300">← Back to Dashboard</a>
     </div>
 
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
         <h3 class="text-xl font-bold text-gray-100 mb-2">Status</h3>
         {% if status.connected and not status.expired %}
-            <p class="text-green-400 font-semibold">Signed in{% if status.email %} as {{ status.email }}{% endif %}</p>
+            <p class="text-green-400 font-semibold">Session stored{% if status.email %} for {{ status.email }}{% endif %}</p>
             {% if status.expires_at %}
                 <p class="text-gray-400 text-sm mt-1">
-                    Session expires {{ status.expires_at }}
+                    Expires around {{ status.expires_at }}
                     {% if status.remaining_days is not none %}
                         ({{ '%.1f'|format(status.remaining_days) }} days left)
                     {% endif %}
                 </p>
-            {% else %}
-                <p class="text-gray-400 text-sm mt-1">Expiry unknown, so the bot will renew it on the next check.</p>
             {% endif %}
         {% elif status.connected %}
             <p class="text-red-400 font-semibold">Session expired</p>
-            <p class="text-gray-400 mt-1">Sign in again, or press Renew if credentials are saved.</p>
+            <p class="text-gray-400 mt-1">Paste a fresh one below to re-enable switching.</p>
         {% else %}
-            <p class="text-yellow-300 font-semibold">Not signed in</p>
+            <p class="text-yellow-300 font-semibold">No session stored</p>
         {% endif %}
 
         <p class="text-gray-500 text-sm mt-3">
-            Comparisons run on your API key and are unaffected by this. The session is only needed to
-            start a tariff switch, because Octopus's enrolment API accepts a website login and nothing else.
+            Comparisons run on your API key and are unaffected by this. The session is needed only to
+            start a tariff switch: Octopus's enrolment API accepts a website login and refuses API keys,
+            OAuth tokens and scoped tokens alike.
+        </p>
+        <p class="text-gray-500 text-sm mt-2">
+            It lasts {{ lifetime_days }} days and cannot be renewed automatically, so the bot will warn you
+            once it has {{ renewal_lead_days }} day{{ 's' if renewal_lead_days != 1 }} left.
         </p>
 
-        {% if has_credentials %}
-            <p class="text-gray-400 text-sm mt-3">
-                Automatic renewal is on: after each nightly run ({{ execution_time }}) the bot checks the session
-                and signs in again once it has {{ renewal_lead_days }} day{{ 's' if renewal_lead_days != 1 }} left,
-                so the result reaches you with the comparison results.
-                {% if credentials_from_config %}Credentials come from the add-on configuration.{% endif %}
-            </p>
-        {% else %}
-            <p class="text-yellow-300 text-sm mt-3">
-                No saved credentials, so the session will not renew itself. It lasts 7 days from sign-in.
-            </p>
+        {% if status.connected %}
+        <form method="POST" action="auth/logout" class="mt-4">
+            <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
+                Remove session
+            </button>
+        </form>
         {% endif %}
-
-        <div class="flex gap-3 mt-4">
-            {% if has_credentials %}
-            <form method="POST">
-                <input type="hidden" name="intent" value="renew">
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
-                    Renew now
-                </button>
-            </form>
-            {% endif %}
-            {% if status.connected or has_credentials %}
-            <form method="POST" action="auth/logout">
-                <button type="submit" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
-                    Sign out and forget credentials
-                </button>
-            </form>
-            {% endif %}
-        </div>
     </div>
 
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <h3 class="text-xl font-bold text-gray-100 mb-2">Sign in to Octopus</h3>
-        <p class="text-gray-400 text-sm mb-4">
-            The bot opens octopus.energy in a browser of its own and logs in for you, so there is nothing
-            to copy from developer tools. This takes up to a minute, so the page will sit and think.
-        </p>
+        <h3 class="text-xl font-bold text-gray-100 mb-2">Paste a session</h3>
+        <ol class="text-gray-400 text-sm list-decimal ml-5 mb-4 space-y-1">
+            <li>Log in at <a class="text-blue-400 hover:underline" href="https://octopus.energy/login/" target="_blank" rel="noopener">octopus.energy</a> as you normally would.</li>
+            <li>Open developer tools, then <strong class="text-gray-200">Application → Cookies → https://octopus.energy</strong>.</li>
+            <li>Copy the value of the <code class="text-gray-200">octosession</code> cookie.</li>
+        </ol>
         <form method="POST" class="space-y-4">
-            <input type="hidden" name="intent" value="login">
             <div>
-                <label class="block text-gray-300 mb-2" for="email">Octopus email</label>
-                <input type="email" id="email" name="email" required autocomplete="username"
-                       value="{{ saved_email or '' }}"
-                       class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+                <label class="block text-gray-300 mb-2" for="octosession">octosession</label>
+                <textarea id="octosession" name="octosession" rows="3" required autocomplete="off"
+                          placeholder="paste the cookie value here"
+                          class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500 font-mono text-sm"></textarea>
+                <p class="text-gray-500 text-sm mt-2">
+                    The whole <code class="text-gray-200">octosession=…</code> pair or a full cookie header is fine too.
+                </p>
             </div>
-            <div>
-                <label class="block text-gray-300 mb-2" for="password">Octopus password</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password"
-                       class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
-            </div>
-            <label class="flex items-center text-gray-300">
-                <input type="checkbox" name="remember" value="1" checked
-                       class="w-5 h-5 bg-gray-900 border border-gray-600 rounded">
-                <span class="ml-3">Save so the bot can renew the session by itself</span>
-            </label>
-            <p class="text-gray-500 text-sm">
-                Saving keeps your password on the bot's own storage, readable only by the add-on. Without it
-                you would have to sign in here every 7 days.
-            </p>
             <button type="submit"
                     class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200">
-                Sign in
+                Check and save
             </button>
         </form>
+        <p class="text-gray-500 text-sm mt-4">
+            The bot checks the session with Octopus before storing it, so you will know straight away
+            whether it works.
+        </p>
     </div>
 </div>
 {% endblock %}

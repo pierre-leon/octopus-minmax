@@ -2,7 +2,6 @@ import time
 from datetime import date, datetime
 from typing import List, Dict, Optional, Tuple
 import random
-import browser_login
 import config
 import web_session
 from account_info import AccountInfo
@@ -26,10 +25,10 @@ def octopus_login_url() -> str:
 
 def switch_login_needed_message() -> str:
     return (
-        "Tariff switching needs an Octopus website session, which only a browser login can create "
-        "(API keys and OAuth tokens are refused by the enrolment API).\n"
-        "Set OCTOPUS_EMAIL and OCTOPUS_PASSWORD in the add-on configuration and the bot will "
-        "renew the session itself.\n"
+        "Tariff switching needs an Octopus website session. The enrolment API refuses API keys, "
+        "OAuth tokens and scoped tokens, and Octopus guards the login form with a captcha, so the "
+        "session has to be copied in by hand.\n"
+        "Log in at octopus.energy, copy the octosession cookie, and paste it into the dashboard.\n"
         f"Dashboard: {octopus_login_url()}"
     )
 
@@ -48,7 +47,7 @@ class BotOrchestrator:
 
         mode_msg = "ONE_OFF mode enabled" if config.ONE_OFF_RUN else f"Scheduled mode, running at {config.EXECUTION_TIME}"
         ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - {mode_msg} \n Check port {config.WEB_PORT} for dashboard.")
-        self._renew_web_session_if_due(reason="startup")
+        self._warn_if_session_expiring()
 
         while True:
             if config.ONE_OFF_RUN and not config.ONE_OFF_EXECUTED:
@@ -68,48 +67,41 @@ class BotOrchestrator:
 
             time.sleep(30)
 
-    def _renew_web_session_if_due(self, reason: str) -> bool:
-        """Refresh the website session well before it lapses.
+    def _warn_if_session_expiring(self) -> None:
+        """Nag before the session dies, not after a switch has failed.
 
-        Octopus issues it for 7 days and never extends it. Renewing right after
-        the nightly run means the result arrives in the same notification batch
-        you already read, with SESSION_RENEWAL_LEAD_DAYS nights left to fix it.
+        Octopus issues it for 7 days, never extends it, and no credential the
+        bot holds can mint a new one - so the only fix is a human pasting a
+        fresh cookie, and that needs warning ahead of time.
         """
         ns = self.notification_service
         status = web_session.public_status()
 
-        if not web_session.needs_renewal(config.SESSION_RENEWAL_LEAD_DAYS):
-            remaining = status.get("remaining_days")
-            logger.info(f"Website session still valid for {remaining:.1f} days; no renewal needed")
-            return True
+        if not status["connected"]:
+            ns.send_notification(switch_login_needed_message(), title="Octopus Session Needed", batchable=False)
+            return
 
-        email, password = web_session.credentials()
-        if not (email and password):
-            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
-            return False
-
-        logger.info(f"Renewing Octopus website session ({reason})")
-        try:
-            cookie, expires_at = browser_login.fetch_web_session(email, password)
-        except Exception as e:
-            logger.error(f"Website session renewal failed: {e}")
+        remaining = status.get("remaining_days")
+        if status["expired"]:
             ns.send_notification(
-                f"Could not renew the Octopus website session, so tariff switching is offline.\n"
-                f"{e}\n"
-                f"Comparisons continue as normal. Dashboard: {octopus_login_url()}",
-                title="Octopus Session Renewal Failed",
+                "The Octopus session has expired, so tariff switching is offline. Comparisons "
+                f"continue as normal.\n{switch_login_needed_message()}",
+                title="Octopus Session Expired",
                 is_error=True,
                 batchable=False,
             )
-            return False
+            return
 
-        web_session.save(cookie, expires_at, email=email)
-        expiry_text = expires_at.strftime("%d/%m/%Y %H:%M UTC") if expires_at else "an unknown date"
-        ns.send_notification(
-            f"Octopus website session renewed. Valid until {expiry_text}.",
-            batchable=False,
-        )
-        return True
+        if web_session.needs_renewal(config.SESSION_RENEWAL_LEAD_DAYS):
+            ns.send_notification(
+                f"The Octopus session runs out in {remaining:.1f} days and cannot renew itself.\n"
+                f"{switch_login_needed_message()}",
+                title="Octopus Session Expiring",
+                batchable=False,
+            )
+            return
+
+        logger.info(f"Website session valid for another {remaining:.1f} days")
 
     def _initialize(self) -> None:
         logger.debug(f"{__name__}")
@@ -146,9 +138,9 @@ class BotOrchestrator:
         finally:
             if config.BATCH_NOTIFICATIONS:
                 ns.send_batch_notification()
-            # Last thing of the night, so any renewal failure lands next to the
-            # comparison results rather than at some hour nobody is watching.
-            self._renew_web_session_if_due(reason="after nightly run")
+            # Last thing of the night, so the warning lands next to the comparison
+            # results rather than at some hour nobody is watching.
+            self._warn_if_session_expiring()
 
     def _format_comparison_summary(self, result: ComparisonResult) -> str:
         lines = []
