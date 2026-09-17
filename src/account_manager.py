@@ -1,5 +1,5 @@
 import time
-from datetime import date, datetime
+from datetime import date
 from typing import Optional, List, Dict
 import logging
 import config
@@ -22,6 +22,11 @@ from queries import (
 )
 
 logger = logging.getLogger('octobot.account_manager')
+
+# Statuses that mean an enrolment is over and must not be mistaken for a new one.
+TERMINAL_ENROLMENT_STATUSES = {
+    "COMPLETED", "CANCELLED", "CANCELED", "EXPIRED", "FAILED", "WITHDRAWN", "REJECTED",
+}
 
 class AccountManager:
     _instance: Optional['AccountManager'] = None
@@ -244,22 +249,75 @@ class AccountManager:
 
         The enrolment API does not return an id, but acceptTermsAndConditions
         needs one, so we read it back from GraphQL once Octopus has recorded it.
+        Old enrolments share a product code, so only live ones count.
         """
         query = enrolment_query.format(acc_number=self.config.ACC_NUMBER)
         for attempt in range(1, attempts + 1):
             result = self.query_service.execute_gql_query(query)
             enrolments = result.get("productEnrolments") or []
+
+            live = []
             for enrolment in enrolments:
-                if (enrolment.get("product") or {}).get("code") == product_code:
-                    logger.info(
-                        f"Found enrolment {enrolment.get('id')} for {product_code} "
-                        f"(status {enrolment.get('status')})"
-                    )
-                    return enrolment.get("id")
-            logger.info(f"No enrolment for {product_code} yet (attempt {attempt}/{attempts})")
+                if (enrolment.get("product") or {}).get("code") != product_code:
+                    continue
+                status = (enrolment.get("status") or "").upper()
+                if status in TERMINAL_ENROLMENT_STATUSES:
+                    logger.debug(f"Ignoring enrolment {enrolment.get('id')} ({status})")
+                    continue
+                live.append(enrolment)
+
+            if live:
+                # Ids are sequential, so the largest is the one just created.
+                newest = max(live, key=lambda e: int(e.get("id") or 0))
+                logger.info(
+                    f"Found live enrolment {newest.get('id')} for {product_code} "
+                    f"(status {newest.get('status')}); ignored {len(enrolments) - len(live)} other enrolment(s)"
+                )
+                return newest.get("id")
+
+            logger.info(f"No live enrolment for {product_code} yet (attempt {attempt}/{attempts})")
             if attempt < attempts:
                 time.sleep(delay_seconds)
         return None
+
+    def enrolment_state(self, enrolment_id: str) -> Optional[Dict]:
+        """Status of one enrolment, plus the step that gates the agreement."""
+        query = enrolment_query.format(acc_number=self.config.ACC_NUMBER)
+        result = self.query_service.execute_gql_query(query)
+        for enrolment in result.get("productEnrolments") or []:
+            if str(enrolment.get("id")) != str(enrolment_id):
+                continue
+            steps = {}
+            for stage in enrolment.get("stages") or []:
+                for step in stage.get("steps") or []:
+                    steps[(step.get("displayName") or "").lower()] = (step.get("status") or "").upper()
+            return {
+                "status": (enrolment.get("status") or "").upper(),
+                "terms_status": steps.get("accept terms and conditions", "UNKNOWN"),
+                "agreement_status": steps.get("update agreements", "UNKNOWN"),
+            }
+        return None
+
+    def wait_for_enrolment_to_complete(self, enrolment_id: str, timeout_seconds: int = 900,
+                                       poll_seconds: int = 30) -> Optional[Dict]:
+        """Poll until Octopus has created the agreement, or we give up waiting."""
+        deadline = time.time() + timeout_seconds
+        state = None
+        while time.time() < deadline:
+            state = self.enrolment_state(enrolment_id)
+            if state is None:
+                logger.warning(f"Enrolment {enrolment_id} is no longer listed on the account")
+                return None
+            logger.info(
+                f"Enrolment {enrolment_id}: status={state['status']} "
+                f"terms={state['terms_status']} agreement={state['agreement_status']}"
+            )
+            if state["agreement_status"] == "COMPLETED" or state["status"] == "COMPLETED":
+                return state
+            if state["status"] in TERMINAL_ENROLMENT_STATUSES:
+                return state
+            time.sleep(poll_seconds)
+        return state
 
     def accept_new_agreement(self, product_code: str, enrolment_id: str) -> Optional[str]:
         # get terms and conditions version
@@ -271,26 +329,3 @@ class AccountManager:
                                             version_minor=version['minor'])
         result = self.query_service.execute_gql_query(query)
         return result.get('acceptTermsAndConditions', {}).get('acceptedVersion', "unknown version")
-
-    def verify_new_agreement_status(self) -> bool:
-        """Verifies if the new tariff agreement is active as of today."""
-        query = account_query.format(acc_number=self.config.ACC_NUMBER)
-        result = self.query_service.execute_gql_query(query)
-
-        today_date = datetime.now().date()
-        for agreement in result.get("account", {}).get("electricityAgreements", []):
-            valid_from_str = agreement.get('validFrom')
-            if valid_from_str:
-                try:
-                    # API might return a full datetime string or just a date string
-                    if 'T' in valid_from_str:
-                        agreement_start_date = datetime.fromisoformat(valid_from_str.replace('Z', '+00:00')).date()
-                    else:
-                        agreement_start_date = date.fromisoformat(valid_from_str)
-
-                    if agreement_start_date == today_date:
-                        return True
-                except ValueError:
-                    logger.warning(f"Could not parse agreement 'validFrom' date: {valid_from_str}")
-                    continue
-        return False

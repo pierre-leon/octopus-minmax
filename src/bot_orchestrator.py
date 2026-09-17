@@ -1,5 +1,5 @@
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, time as dt_time
 from typing import List, Dict, Optional, Tuple
 import random
 import config
@@ -257,35 +257,52 @@ class BotOrchestrator:
             f"product={plan['product_code']} (matches the tariff the comparison chose)"
         )
 
+    @staticmethod
+    def _wait_before_accepting(default_wait: int = 120, margin: int = 30) -> int:
+        """Wait before accepting the terms, but never past midnight.
+
+        Octopus dates the agreement from the day the terms were accepted.
+        """
+        now = datetime.now()
+        midnight = datetime.combine(now.date() + timedelta(days=1), dt_time())
+        remaining = (midnight - now).total_seconds() - margin
+        if remaining <= 0:
+            logger.warning(f"{(midnight - now).total_seconds():.0f}s until midnight - accepting terms now")
+            return 0
+        return int(min(default_wait, remaining))
+
     def _execute_switch(self, target_tariff: Tariff, account_info: AccountInfo) -> None:
         ns = self.notification_service
 
         enrolment_id = self.account_manager.initiate_tariff_switch(target_tariff)
         if not enrolment_id:
-            ns.send_notification(
-                "Switch was requested but no enrolment appeared on the account. "
-                "Check your email - Octopus may still have sent the terms to accept."
-            )
+            ns.send_notification("ERROR: Couldn't get enrolment ID")
             return
 
-        wait_time = 120
-        ns.send_notification(f"Tariff switch requested successfully. Waiting {wait_time}s before attempting to accept new agreement.")
+        wait_time = self._wait_before_accepting()
+        if wait_time:
+            ns.send_notification(
+                f"Switch requested, enrolment {enrolment_id}. "
+                f"Waiting {wait_time}s before accepting the agreement."
+            )
+            # Give octopus some time to generate the agreement
+            time.sleep(wait_time)
+        else:
+            ns.send_notification(
+                f"Switch requested, enrolment {enrolment_id}. Accepting immediately - "
+                f"midnight is too close to wait."
+            )
 
-        # Give octopus some time to generate the agreement
-        time.sleep(wait_time)
         accepted_version = self.account_manager.accept_new_agreement(target_tariff.product_code, enrolment_id)
-        ns.send_notification(f"Accepted agreement (v.{accepted_version}). Switch successful.")
+        ns.send_notification(f"Accepted agreement (v.{accepted_version}) for enrolment {enrolment_id}.")
 
-        verified = self.account_manager.verify_new_agreement_status()
-        if not verified:
-            ns.send_notification("Verification failed, waiting 20 seconds and trying again...")
-            time.sleep(60)
-            verified = self.account_manager.verify_new_agreement_status() # Retry
-            if verified:
-                ns.send_notification("Verified new agreement successfully. Process finished.")
-            else:
-                ns.send_notification(
-                    f"Unable to verify new agreement after retry. "
-                    f"Please check your account and emails.\n"
-                    f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages"
-                )
+        state = self.account_manager.wait_for_enrolment_to_complete(enrolment_id)
+        if state and (state["agreement_status"] == "COMPLETED" or state["status"] == "COMPLETED"):
+            ns.send_notification("Verified new agreement successfully. Process finished.")
+            return
+
+        ns.send_notification(
+            f"Unable to verify new agreement after retry. "
+            f"Please check your account and emails.\n"
+            f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages"
+        )
