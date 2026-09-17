@@ -122,7 +122,7 @@ class OctopusWebClient:
         body = {
             "journey": journey,
             "termsAndConditionsAccepted": terms_accepted,
-            "propertyId": property_id,
+            "propertyId": int(property_id),
             "candidates": [{
                 "type": IMPORT_ELECTRICITY,
                 "importMpan": mpan,

@@ -191,6 +191,12 @@ class AccountManager:
         property_id = data.get("propertyId")
         if not property_id:
             raise Exception(f"Octopus did not return a propertyId for the {target_tariff.journey} journey.")
+        # start-enrolment wants a number here and answers a quoted one with
+        # 422 "Invalid body", so don't pass through whatever type came back.
+        try:
+            property_id = int(property_id)
+        except (TypeError, ValueError):
+            raise Exception(f"Octopus returned an unusable propertyId ({property_id!r}).")
 
         candidate = matching_candidate(data, self.mpan)
         if candidate is None:
