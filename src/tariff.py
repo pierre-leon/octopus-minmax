@@ -56,10 +56,10 @@ class Tariff:
 
 
 TARIFFS = [
-    Tariff("go", "Octopus Go", "Octopus Go", r"-go-var-", "go", True, journey="GO"), # Octopus Go (Variable)
+    Tariff("go", "Octopus Go", "Octopus Go", r"-go-var-", "go", True, journey="GO", journey_variant="VARIABLE"), # Octopus Go (Variable)
     Tariff("go-fix-12m", "Octopus Go 12M Fixed", "Octopus Go 12M Fixed", r"-go-fix-", "go", True, can_leave=False, journey="GO"),
     Tariff("agile", "Agile Octopus", "Agile Octopus", r"-agile-", "agile", True, journey="AGILE"), # Octopus Agile
-    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", r"-cosy-(?!.*fix)", r"cosy-octopus", True, journey="COSY"), # Octopus Cosy (Variable is the default so don't match anything with 'fix' in the name)
+    Tariff("cosy", "Cosy Octopus", "Cosy Octopus", r"-cosy-(?!.*fix)", r"cosy-octopus", True, journey="COSY", journey_variant="VARIABLE"), # Octopus Cosy (Variable is the default so don't match anything with 'fix' in the name)
     Tariff("flexible", "Flexible Octopus", "Flexible Octopus", r"(?<!go-)var", "", False) # Flexible Octopus
 ]
 

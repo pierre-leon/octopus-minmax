@@ -240,6 +240,7 @@ class AccountManager:
             journey=plan["journey"],
             property_id=plan["property_id"],
             mpan=plan["mpan"],
+            variant=plan["variant"],
         )
         return self.find_pending_enrolment_id(plan["product_code"])
 

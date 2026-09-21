@@ -118,7 +118,7 @@ class OctopusWebClient:
         return self._request("GET", f"{ENROLMENT_DATA_URL}?{urlencode(params)}")
 
     def start_enrolment(self, journey: str, property_id: int, mpan: str,
-                        terms_accepted: bool = False) -> dict:
+                        variant: Optional[str] = None, terms_accepted: bool = False) -> dict:
         body = {
             "journey": journey,
             "termsAndConditionsAccepted": terms_accepted,
@@ -130,6 +130,10 @@ class OctopusWebClient:
                 "gasMprn": None,
             }],
         }
+        # The website sends this for journeys that sell both a fixed and a
+        # variable product, and omits it for the ones that don't.
+        if variant:
+            body["variant"] = variant
         logger.debug(f"start-enrolment payload: {json.dumps(body)}")
         return self._request("POST", START_ENROLMENT_URL, body)
 
