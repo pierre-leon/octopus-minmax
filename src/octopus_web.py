@@ -138,12 +138,23 @@ class OctopusWebClient:
         return self._request("POST", START_ENROLMENT_URL, body)
 
 
-def offered_product_code(enrolment_data: dict) -> Optional[str]:
-    """The product code Octopus would actually enrol you onto for this journey."""
-    for tariff in enrolment_data.get("tariffs") or []:
-        if tariff.get("type") == IMPORT_ELECTRICITY:
-            return tariff.get("productCode")
-    return None
+def offered_product_code(enrolment_data: dict, variant: Optional[str] = None) -> Optional[str]:
+    """The product code Octopus would enrol you onto for this journey.
+
+    Journeys selling both a fixed and a variable product return both, fixed
+    first, each tagged with its own variant - so the variant picks the one.
+    Returns None when the variant asked for is not on offer.
+    """
+    offered = [tariff for tariff in enrolment_data.get("tariffs") or []
+               if tariff.get("type") == IMPORT_ELECTRICITY]
+    tagged = [tariff for tariff in offered if tariff.get("variant")]
+    if variant and tagged:
+        wanted = variant.upper()
+        for tariff in tagged:
+            if tariff["variant"].upper() == wanted:
+                return tariff.get("productCode")
+        return None
+    return offered[0].get("productCode") if offered else None
 
 
 def matching_candidate(enrolment_data: dict, mpan: str) -> Optional[dict]:

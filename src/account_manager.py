@@ -215,7 +215,7 @@ class AccountManager:
                 f"{detail} This is also what an open enrolment looks like."
             )
 
-        offered = offered_product_code(data)
+        offered = offered_product_code(data, target_tariff.journey_variant)
         if offered != target_tariff.product_code:
             raise Exception(
                 f"Refusing to switch: the {target_tariff.journey} journey would enrol onto '{offered}', "
