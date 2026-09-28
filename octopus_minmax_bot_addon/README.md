@@ -45,7 +45,7 @@ https://github.com/eelmafia/octopus-minmax
 ### Running Manually
 1. Install the Python requirements.
 2. Configure the environment variables.
-3. Run `main.py`. I recommend scheduling it to run it at 11 PM in order to leave yourself an hour as a safety margin in case Octopus takes a while to generate your new agreement.
+3. Run `main.py`. I recommend leaving `EXECUTION_TIME` at 11 PM. The bot also compares one hour earlier: if the saving is more than `EARLY_SWITCH_MULTIPLIER` × your switch threshold it switches immediately, otherwise it waits and runs again at 11 PM.
 
 ### Running using Docker
 Docker run command:
@@ -57,6 +57,8 @@ docker run -d \
   -e ACC_NUMBER="<your_account_number>" \
   -e API_KEY="<your_api_key>" \
   -e EXECUTION_TIME="23:00" \
+  -e EARLY_RUN=true \
+  -e EARLY_SWITCH_MULTIPLIER=10 \
   -e SWITCH_THRESHOLD=2 \
   -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
@@ -79,7 +81,9 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `ACC_NUMBER`                | Your Octopus Energy account number.                                                                                                                                                                                     |
 | `API_KEY`                   | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
 | `TARIFFS`                   | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      |
-| `EXECUTION_TIME`            | (Optional) The time (HH:MM) when the script should execute. Default is `23:00` (11 PM).                                                                                                                                 |
+| `EXECUTION_TIME`            | (Optional) The time (HH:MM) of the final nightly run. Default is `23:00` (11 PM).                                                                                                                                       |
+| `EARLY_RUN`                 | (Optional) Compare one hour before `EXECUTION_TIME`. Default `true`.                                                                                                                                                    |
+| `EARLY_SWITCH_MULTIPLIER`   | (Optional) At the early check, switch immediately if savings exceed this × `SWITCH_THRESHOLD`. Smaller savings wait for the final run. Default `10`.                                                                    |
 | `SWITCH_THRESHOLD`          | A value (in pence) which the saving must be before the switch occurs. Default is `2` (2p). |
 | `NOTIFICATION_URLS`         | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
 | `ONE_OFF`                   | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |

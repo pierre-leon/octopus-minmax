@@ -12,6 +12,8 @@ def get_config():
             'acc_number': config.ACC_NUMBER,
             'base_url': config.BASE_URL,
             'execution_time': config.EXECUTION_TIME,
+            'early_run': config.EARLY_RUN,
+            'early_switch_multiplier': config.EARLY_SWITCH_MULTIPLIER,
             'switch_threshold': config.SWITCH_THRESHOLD,
             'tariffs': config.TARIFFS,
             'one_off_run': config.ONE_OFF_RUN,
@@ -36,6 +38,12 @@ def update_config(new_values):
             config.BASE_URL = new_values['base_url']
         if 'execution_time' in new_values:
             config.EXECUTION_TIME = new_values['execution_time']
+        if 'early_run' in new_values:
+            config.EARLY_RUN = str(new_values['early_run']).lower() in ['true', '1', 'yes', 'on']
+        else:
+            config.EARLY_RUN = False
+        if 'early_switch_multiplier' in new_values:
+            config.EARLY_SWITCH_MULTIPLIER = int(new_values['early_switch_multiplier'])
         if 'switch_threshold' in new_values:
             config.SWITCH_THRESHOLD = int(new_values['switch_threshold'])
         if 'tariffs' in new_values:
@@ -83,5 +91,13 @@ def validate_config(config_dict):
                 errors.append("Switch threshold must be positive")
         except ValueError:
             errors.append("Switch threshold must be a number")
+
+    if 'early_switch_multiplier' in config_dict:
+        try:
+            val = int(config_dict['early_switch_multiplier'])
+            if val < 1:
+                errors.append("Early switch multiplier must be at least 1")
+        except ValueError:
+            errors.append("Early switch multiplier must be a number")
 
     return errors

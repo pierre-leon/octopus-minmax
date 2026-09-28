@@ -18,6 +18,22 @@ logger = logging.getLogger('octobot.bot_orchestrator')
 def get_timestamp():
     return datetime.now().strftime("%d/%m/%Y %H:%M")
 
+def time_minus_hours(hhmm: str, hours: int = 1) -> str:
+    hour, minute = (int(part) for part in hhmm.split(":", 1))
+    shifted = datetime(2000, 1, 1, hour, minute) - timedelta(hours=hours)
+    return shifted.strftime("%H:%M")
+
+def early_execution_time() -> Optional[str]:
+    if not config.EARLY_RUN:
+        return None
+    early = time_minus_hours(config.EXECUTION_TIME, 1)
+    if early == config.EXECUTION_TIME:
+        return None
+    return early
+
+def early_switch_threshold_pence() -> float:
+    return config.SWITCH_THRESHOLD * config.EARLY_SWITCH_MULTIPLIER
+
 def octopus_login_url() -> str:
     if config.DASHBOARD_URL:
         return f"{config.DASHBOARD_URL}/auth"
@@ -38,34 +54,80 @@ class BotOrchestrator:
         self.query_service = None
         self.account_manager = None
         self.tariffs = []
-        self.last_execution_datetime = None
+        self.last_early_datetime = None
+        self.last_final_datetime = None
+        self.switched_on_date = None
         self.notification_service = None
 
     def start(self) -> None:
         self.notification_service = NotificationService(config.NOTIFICATION_URLS, config.BATCH_NOTIFICATIONS)
         ns = self.notification_service
 
-        mode_msg = "ONE_OFF mode enabled" if config.ONE_OFF_RUN else f"Scheduled mode, running at {config.EXECUTION_TIME}"
+        mode_msg = self._startup_mode_message()
         ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - {mode_msg} \n Check port {config.WEB_PORT} for dashboard.")
         self._warn_if_session_expiring()
 
         while True:
             if config.ONE_OFF_RUN and not config.ONE_OFF_EXECUTED:
                 ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - Running one-off comparison")
-                self._run_tariff_compare()
+                self._run_tariff_compare(phase="final")
                 config.ONE_OFF_EXECUTED = True
             elif not config.ONE_OFF_RUN:
-                now = datetime.now()
-                current_time = now.strftime("%H:%M")
-                current_minute = now.replace(second=0, microsecond=0)  # Datetime object at minute precision
-                if current_time == config.EXECUTION_TIME and self.last_execution_datetime != current_minute:
-                    self.last_execution_datetime = current_minute
-                    delay = random.randint(10, 900)
-                    ns.send_notification(f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - Initiating comparison in {delay/60:.1f} minutes")
-                    time.sleep(delay)
-                    self._run_tariff_compare()
+                self._tick_schedule()
 
             time.sleep(30)
+
+    def _startup_mode_message(self) -> str:
+        if config.ONE_OFF_RUN:
+            return "ONE_OFF mode enabled"
+        early = early_execution_time()
+        if early:
+            return (
+                f"Scheduled mode, early check at {early}, final run at {config.EXECUTION_TIME} "
+                f"(early switch if savings > {config.EARLY_SWITCH_MULTIPLIER}× threshold)"
+            )
+        return f"Scheduled mode, running at {config.EXECUTION_TIME}"
+
+    def _tick_schedule(self) -> None:
+        ns = self.notification_service
+        now = datetime.now()
+        current_time = now.strftime("%H:%M")
+        current_minute = now.replace(second=0, microsecond=0)
+        today = now.date()
+        early = early_execution_time()
+
+        if early and current_time == early and self.last_early_datetime != current_minute:
+            self.last_early_datetime = current_minute
+            delay = random.randint(10, 900)
+            ns.send_notification(
+                f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
+                f"Initiating early comparison in {delay/60:.1f} minutes"
+            )
+            time.sleep(delay)
+            if self._run_tariff_compare(phase="early"):
+                self.switched_on_date = today
+            return
+
+        if current_time != config.EXECUTION_TIME or self.last_final_datetime == current_minute:
+            return
+
+        self.last_final_datetime = current_minute
+        if self.switched_on_date == today:
+            logger.info("Skipping final run - already switched after the early check")
+            ns.send_notification(
+                f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
+                f"Skipping {config.EXECUTION_TIME} run; already switched after the early check."
+            )
+            return
+
+        delay = random.randint(10, 900)
+        ns.send_notification(
+            f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
+            f"Initiating comparison in {delay/60:.1f} minutes"
+        )
+        time.sleep(delay)
+        if self._run_tariff_compare(phase="final"):
+            self.switched_on_date = today
 
     def _warn_if_session_expiring(self) -> None:
         """Nag before the session dies, not after a switch has failed.
@@ -125,22 +187,26 @@ class BotOrchestrator:
 
         self.tariffs = matched_tariffs
 
-    def _run_tariff_compare(self) -> None:
+    def _run_tariff_compare(self, phase: str = "final") -> bool:
         ns = self.notification_service
+        switched = False
         try:
             self._initialize()
             if self.query_service is None:
                 raise Exception("ERROR: QueryService initialization failed")
 
-            self._compare_and_switch()
+            switched = self._compare_and_switch(phase)
         except Exception as e:
             ns.send_notification(message=str(e), title="Octobot Error", is_error=True)
         finally:
             if config.BATCH_NOTIFICATIONS:
                 ns.send_batch_notification()
             # Last thing of the night, so the warning lands next to the comparison
-            # results rather than at some hour nobody is watching.
-            self._warn_if_session_expiring()
+            # results rather than at some hour nobody is watching. Skip it on an
+            # early check that deferred, because the final run still has to fire.
+            if phase == "final" or switched:
+                self._warn_if_session_expiring()
+        return switched
 
     def _format_comparison_summary(self, result: ComparisonResult) -> str:
         lines = []
@@ -204,9 +270,13 @@ class BotOrchestrator:
             f"threshold of £{config.SWITCH_THRESHOLD / 100:.2f}"
         )
 
-    def _compare_and_switch(self) -> None:
+    def _compare_and_switch(self, phase: str = "final") -> bool:
         ns = self.notification_service
-        welcome_message = f"{'DRY RUN: ' if config.DRY_RUN else ''}Starting comparison of today's costs..."
+        phase_prefix = "Early check: " if phase == "early" else ""
+        welcome_message = (
+            f"{'DRY RUN: ' if config.DRY_RUN else ''}{phase_prefix}"
+            f"Starting comparison of today's costs..."
+        )
         ns.send_notification(welcome_message)
 
         account_info = self.account_manager.fetch_current_account_info()
@@ -225,17 +295,55 @@ class BotOrchestrator:
             if cost_chart:
                 ns.send_notification(message="", image_path=cost_chart, batchable=False)
 
+        if phase == "early":
+            return self._decide_early_switch(results, account_info)
+        return self._decide_final_switch(results, account_info)
+
+    def _decide_early_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
+        ns = self.notification_service
+        bar = early_switch_threshold_pence()
+        cheapest_name = results.cheapest_tariff.display_name if results.cheapest_tariff else "none"
+
+        if results.should_switch and results.potential_savings > bar:
+            ns.send_notification(
+                f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
+                f"are more than {config.EARLY_SWITCH_MULTIPLIER}× the threshold "
+                f"(£{bar / 100:.2f}). Switching now rather than waiting until {config.EXECUTION_TIME}."
+            )
+            return self._perform_switch(results, account_info)
+
         if results.should_switch:
-            switch_message = f"Initiating Switch to {results.cheapest_tariff.display_name}"
-            ns.send_notification(switch_message)
-            if config.DRY_RUN:
-                self._preview_switch(results.cheapest_tariff)
-            elif not QueryService.has_switch_auth():
-                ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
-            else:
-                self._execute_switch(results.cheapest_tariff, account_info)
-        else:
-            ns.send_notification(self._format_no_switch_message(results))
+            ns.send_notification(
+                f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
+                f"are below {config.EARLY_SWITCH_MULTIPLIER}× the threshold "
+                f"(£{bar / 100:.2f}). Waiting until {config.EXECUTION_TIME} to confirm."
+            )
+            return False
+
+        ns.send_notification(
+            f"Early check: {self._format_no_switch_message(results)} "
+            f"Rechecking at {config.EXECUTION_TIME}."
+        )
+        return False
+
+    def _decide_final_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
+        ns = self.notification_service
+        if results.should_switch:
+            ns.send_notification(f"Initiating Switch to {results.cheapest_tariff.display_name}")
+            return self._perform_switch(results, account_info)
+        ns.send_notification(self._format_no_switch_message(results))
+        return False
+
+    def _perform_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
+        ns = self.notification_service
+        target = results.cheapest_tariff
+        if config.DRY_RUN:
+            self._preview_switch(target)
+            return True
+        if not QueryService.has_switch_auth():
+            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
+            return False
+        return self._execute_switch(target, account_info)
 
     def _preview_switch(self, target_tariff: Tariff) -> None:
         """Run every pre-flight check and show the request, without sending it."""
@@ -271,13 +379,13 @@ class BotOrchestrator:
             return 0
         return int(min(default_wait, remaining))
 
-    def _execute_switch(self, target_tariff: Tariff, account_info: AccountInfo) -> None:
+    def _execute_switch(self, target_tariff: Tariff, account_info: AccountInfo) -> bool:
         ns = self.notification_service
 
         enrolment_id = self.account_manager.initiate_tariff_switch(target_tariff)
         if not enrolment_id:
             ns.send_notification("ERROR: Couldn't get enrolment ID")
-            return
+            return False
 
         wait_time = self._wait_before_accepting()
         if wait_time:
@@ -299,10 +407,12 @@ class BotOrchestrator:
         state = self.account_manager.wait_for_enrolment_to_complete(enrolment_id)
         if state and (state["agreement_status"] == "COMPLETED" or state["status"] == "COMPLETED"):
             ns.send_notification("Verified new agreement successfully. Process finished.")
-            return
+            return True
 
         ns.send_notification(
             f"Unable to verify new agreement after retry. "
             f"Please check your account and emails.\n"
             f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages"
         )
+        # Enrolment was submitted; do not try again an hour later.
+        return True

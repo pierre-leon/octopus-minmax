@@ -43,10 +43,25 @@
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-gray-300 mb-2" for="execution_time">Execution Time (HH:MM)</label>
+                    <label class="block text-gray-300 mb-2" for="execution_time">Final Execution Time (HH:MM)</label>
                     <input type="text" id="execution_time" name="execution_time" value="{{ config.execution_time }}"
                            placeholder="23:00"
                            class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+                    <p class="text-gray-500 text-sm mt-2">The late run. With early run on, a first check happens one hour before this.</p>
+                </div>
+
+                <div class="flex items-center">
+                    <input type="checkbox" id="early_run" name="early_run" {% if config.early_run %}checked{% endif %}
+                           class="w-5 h-5 bg-gray-900 border border-gray-600 rounded">
+                    <label class="ml-3 text-gray-300" for="early_run">Early run (compare one hour before, switch immediately if savings are large)</label>
+                </div>
+
+                <div>
+                    <label class="block text-gray-300 mb-2" for="early_switch_multiplier">Early Switch Multiplier</label>
+                    <input type="number" id="early_switch_multiplier" name="early_switch_multiplier" value="{{ config.early_switch_multiplier }}"
+                           min="1"
+                           class="w-full bg-gray-900 border border-gray-600 text-gray-100 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+                    <p class="text-gray-500 text-sm mt-2">At the early check, switch if savings are greater than this × the switch threshold. Otherwise wait for the final run. Default 10.</p>
                 </div>
 
                 <div>

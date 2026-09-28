@@ -8,7 +8,13 @@ configuration:
     description: URLs to send notifications to. Using Apprise.
   EXECUTION_TIME:
     name: Execution Time
-    description: When not One Off. This is the time to execute comparison.
+    description: When not One Off. Final comparison time (HH:MM). An early check runs one hour before this.
+  EARLY_RUN:
+    name: Early Run
+    description: Compare one hour before execution time. High-savings switches go through immediately; smaller ones wait for the final run.
+  EARLY_SWITCH_MULTIPLIER:
+    name: Early Switch Multiplier
+    description: At the early check, switch if savings exceed this times the switch threshold. Default 10.
   SWITCH_THRESHOLD:
     name: Switch Threshold
     description: A value (in pence) which the saving must be before the switch occurs. Default is 2 (2p).
