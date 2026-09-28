@@ -12,9 +12,9 @@ configuration:
   EARLY_RUN:
     name: Early Run
     description: Compare one hour before execution time. High-savings switches go through immediately; smaller ones wait for the final run.
-  EARLY_SWITCH_MULTIPLIER:
-    name: Early Switch Multiplier
-    description: At the early check, switch if savings exceed this times the switch threshold. Default 10.
+  EARLY_SWITCH_THRESHOLD:
+    name: Early Switch Threshold
+    description: At the early check, switch if savings (in pence) exceed this. Smaller savings wait for the final run. Default 20.
   SWITCH_THRESHOLD:
     name: Switch Threshold
     description: A value (in pence) which the saving must be before the switch occurs. Default is 2 (2p).

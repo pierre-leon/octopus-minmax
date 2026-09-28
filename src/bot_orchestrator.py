@@ -32,7 +32,9 @@ def early_execution_time() -> Optional[str]:
     return early
 
 def early_switch_threshold_pence() -> float:
-    return config.SWITCH_THRESHOLD * config.EARLY_SWITCH_MULTIPLIER
+    """Never below the normal threshold, or the early run would switch on
+    savings the final run would reject."""
+    return max(config.EARLY_SWITCH_THRESHOLD, config.SWITCH_THRESHOLD)
 
 def octopus_login_url() -> str:
     if config.DASHBOARD_URL:
@@ -84,7 +86,7 @@ class BotOrchestrator:
         if early:
             return (
                 f"Scheduled mode, early check at {early}, final run at {config.EXECUTION_TIME} "
-                f"(early switch if savings > {config.EARLY_SWITCH_MULTIPLIER}× threshold)"
+                f"(early switch if savings > £{early_switch_threshold_pence() / 100:.2f})"
             )
         return f"Scheduled mode, running at {config.EXECUTION_TIME}"
 
@@ -307,16 +309,16 @@ class BotOrchestrator:
         if results.should_switch and results.potential_savings > bar:
             ns.send_notification(
                 f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
-                f"are more than {config.EARLY_SWITCH_MULTIPLIER}× the threshold "
-                f"(£{bar / 100:.2f}). Switching now rather than waiting until {config.EXECUTION_TIME}."
+                f"are over the £{bar / 100:.2f} early-switch threshold. "
+                f"Switching now rather than waiting until {config.EXECUTION_TIME}."
             )
             return self._perform_switch(results, account_info)
 
         if results.should_switch:
             ns.send_notification(
                 f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
-                f"are below {config.EARLY_SWITCH_MULTIPLIER}× the threshold "
-                f"(£{bar / 100:.2f}). Waiting until {config.EXECUTION_TIME} to confirm."
+                f"are below the £{bar / 100:.2f} early-switch threshold. "
+                f"Waiting until {config.EXECUTION_TIME} to confirm."
             )
             return False
 

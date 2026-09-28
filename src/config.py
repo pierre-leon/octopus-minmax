@@ -19,8 +19,8 @@ EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
 # Compare one hour before EXECUTION_TIME. High-savings switches go through immediately;
 # smaller ones wait for the final run so a last-hour usage change can still flip the result.
 EARLY_RUN = os.getenv("EARLY_RUN", "true") in ["true", "True", "1"]
-# Switch at the early run when savings exceed this multiple of SWITCH_THRESHOLD.
-EARLY_SWITCH_MULTIPLIER = int(os.getenv("EARLY_SWITCH_MULTIPLIER", 10))
+# Savings (in pence) the early run needs before it switches without waiting.
+EARLY_SWITCH_THRESHOLD = int(os.getenv("EARLY_SWITCH_THRESHOLD", 20))
 
 # A threshold (in pence) over which the difference between the tariffs must be before the switch happens.
 SWITCH_THRESHOLD = int(os.getenv("SWITCH_THRESHOLD", 2))
