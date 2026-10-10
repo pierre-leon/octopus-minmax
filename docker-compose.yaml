@@ -17,12 +17,13 @@ services:
       - EXECUTION_TIME=23:00
       - EARLY_RUN=true
       - EARLY_SWITCH_THRESHOLD=20
+      - FORWARD_SWITCH_THRESHOLD=20
       - SWITCH_THRESHOLD=2
       - NOTIFICATION_URLS=<your_apprise_notification_urls>
       - ONE_OFF=false
       - DRY_RUN=false
       - SEND_COMPARISON_CHART=true
-      - TARIFFS=agile,flexible
+      - TARIFFS=agile,cosy,flexible
       - WEB_USERNAME=admin
       - WEB_PASSWORD=admin # not meant to be secure
       - DASHBOARD_URL=http://localhost:5050

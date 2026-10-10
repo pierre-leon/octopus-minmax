@@ -45,7 +45,7 @@ https://github.com/eelmafia/octopus-minmax
 ### Running Manually
 1. Install the Python requirements.
 2. Configure the environment variables.
-3. Run `main.py`. I recommend leaving `EXECUTION_TIME` at 11 PM. The bot also compares one hour earlier: if the saving is more than `EARLY_SWITCH_THRESHOLD` it switches immediately, otherwise it waits and runs again at 11 PM.
+3. Run `main.py`. Leave `EXECUTION_TIME` at 11 PM. On Agile or Cosy the final run compares the day just metered and forecasts the next 48 half-hours from a year of history. Cosy can still start this morning. Agile starts at the next midnight, so joining it needs a predicted saving over `FORWARD_SWITCH_THRESHOLD`. The early run only previews.
 
 ### Running using Docker
 Docker run command:
@@ -59,6 +59,7 @@ docker run -d \
   -e EXECUTION_TIME="23:00" \
   -e EARLY_RUN=true \
   -e EARLY_SWITCH_THRESHOLD=20 \
+  -e FORWARD_SWITCH_THRESHOLD=20 \
   -e SWITCH_THRESHOLD=2 \
   -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
@@ -82,9 +83,10 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `API_KEY`                   | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
 | `TARIFFS`                   | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      |
 | `EXECUTION_TIME`            | (Optional) The time (HH:MM) of the final nightly run. Default is `23:00` (11 PM).                                                                                                                                       |
-| `EARLY_RUN`                 | (Optional) Compare one hour before `EXECUTION_TIME`. Default `true`.                                                                                                                                                    |
-| `EARLY_SWITCH_THRESHOLD`    | (Optional) At the early check, switch immediately if the saving (in pence) exceeds this. Smaller savings wait for the final run. Default `20` (20p).                                                                    |
-| `SWITCH_THRESHOLD`          | A value (in pence) which the saving must be before the switch occurs. Default is `2` (2p). |
+| `EARLY_RUN`                 | (Optional) Preview one hour before `EXECUTION_TIME`. The Agile/Cosy switch waits for the final run. Default `true`.                                                                                                      |
+| `EARLY_SWITCH_THRESHOLD`    | (Optional) Early-switch bar, in pence, used only when the account is not hopping between Agile and Cosy. Default `20`.                                                                                                   |
+| `FORWARD_SWITCH_THRESHOLD`  | (Optional) Predicted saving, in pence, required before joining Agile for tomorrow. Defaults to `EARLY_SWITCH_THRESHOLD`, then `20`. A same-day move to Cosy uses `SWITCH_THRESHOLD`.                                    |
+| `SWITCH_THRESHOLD`          | A value (in pence) which the saving must be before a same-day switch to Cosy. Default is `2` (2p). |
 | `NOTIFICATION_URLS`         | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
 | `ONE_OFF`                   | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
 | `DRY_RUN`                   | (Optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |

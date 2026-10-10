@@ -61,11 +61,12 @@ docker run -d \
   -e EXECUTION_TIME="23:00" \
   -e EARLY_RUN=true \
   -e EARLY_SWITCH_THRESHOLD=20 \
+  -e FORWARD_SWITCH_THRESHOLD=20 \
   -e SWITCH_THRESHOLD=2 \
   -e NOTIFICATION_URLS="<apprise_notification_urls>" \
   -e ONE_OFF=false \
   -e DRY_RUN=false \
-  -e TARIFFS=go,agile,flexible \
+  -e TARIFFS=agile,cosy,flexible \
   -e TZ=Europe/London \
   -e BATCH_NOTIFICATIONS=false \
   -e SEND_COMPARISON_CHART=true \
@@ -85,9 +86,10 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `API_KEY`                   | API token for accessing your Octopus Energy account.                                                                                                                                                                    |
 | `TARIFFS`                   | A list of tariffs to compare against. Default is go,agile,flexible                                                                                                                                                      |
 | `EXECUTION_TIME`            | (Optional) The time (HH:MM) of the final nightly run. Default is `23:00` (11 PM).                                                                                                                                       |
-| `EARLY_RUN`                 | (Optional) Compare one hour before `EXECUTION_TIME`. Default `true`.                                                                                                                                                    |
-| `EARLY_SWITCH_THRESHOLD`    | (Optional) At the early check, switch immediately if the saving (in pence) exceeds this. Smaller savings wait for the final run. Default `20` (20p).                                                                    |
-| `SWITCH_THRESHOLD`          | A value (in pence) which the saving must be before the switch occurs. Default is `2` (2p). |
+| `EARLY_RUN`                 | (Optional) Preview one hour before `EXECUTION_TIME`. The Agile/Cosy switch waits for the final run. Default `true`.                                                                                                      |
+| `EARLY_SWITCH_THRESHOLD`    | (Optional) Early-switch bar, in pence, used only when the account is not hopping between Agile and Cosy. Default `20`.                                                                                                   |
+| `FORWARD_SWITCH_THRESHOLD`  | (Optional) Predicted saving, in pence, required before joining Agile for tomorrow. Defaults to `EARLY_SWITCH_THRESHOLD`, then `20`. A same-day move to Cosy uses `SWITCH_THRESHOLD`.                                    |
+| `SWITCH_THRESHOLD`          | A value (in pence) which the saving must be before a same-day switch to Cosy. Default is `2` (2p). |
 | `NOTIFICATION_URLS`         | (Optional) A comma-separated list of [Apprise](https://github.com/caronc/apprise) notification URLs for sending logs and updates.  See [Apprise documentation](https://github.com/caronc/apprise/wiki) for URL formats. |
 | `ONE_OFF`                   | (Optional) A flag for you to simply trigger an immediate execution instead of starting scheduling.                                                                                                                      |
 | `DRY_RUN`                   | (Optional) A flag to compare but not switch tariffs.                                                                                                                                                                    |
@@ -98,6 +100,7 @@ Note : Remove the --restart unless line if you set the ONE_OFF variable or it wi
 | `WEB_PORT`                  | (Optional) Defaults to `5050`.
 | `DASHBOARD_URL`             | (Optional) Public URL of the dashboard, used in login notifications. Example: `http://192.168.1.10:5050`.
 | `SESSION_RENEWAL_LEAD_DAYS` | (Optional) Warn that the switching session is running out once it has this many days left. Default `2`.
+| `LATITUDE` / `LONGITUDE`    | (Optional) House coordinates for the day-ahead weather. Blank uses the middle of the supply region. |
 
 *Reminder: Change the password to something else other than default. It's not meant to be secure, it's just there to stop others on your network from accessing the dashboard and your API key. If they have access to your compose/config files you're already cooked.*
 
@@ -112,6 +115,8 @@ So the session is copied in by hand. Log in at octopus.energy, open developer to
 It lasts 7 days and Octopus does not extend it on use, so the bot checks at the end of every nightly run and warns you once fewer than `SESSION_RENEWAL_LEAD_DAYS` remain. The warning arrives alongside your comparison results, leaving that many nights to paste a new one. Comparisons keep running regardless — only switching depends on the session.
 
 The session lives in `data/octopus_web_session.json` (or `/data` on Home Assistant).
+
+Joining Agile is a forecast of the next 48 half-hours. Each half-hour has its own LightGBM and CatBoost model, averaged with a CNN-LSTM that reads the previous week. The fit uses up to a year of this meter's half-hours plus Open-Meteo temperature, humidity and solar radiation, and each night adds to the model saved from the night before. The model files live next to the session, in `data/demand_model`.
 
 The enrolment API is journey-based rather than product-based, so Octopus decides which product a journey currently sells and that is sometimes a fixed-term one. Before enrolling, the bot checks the product Octopus offers against the product your comparison chose and refuses to continue if they differ, which is what keeps it from landing you on a fix.
 

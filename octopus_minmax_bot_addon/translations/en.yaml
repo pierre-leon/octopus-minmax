@@ -11,10 +11,13 @@ configuration:
     description: When not One Off. Final comparison time (HH:MM). An early check runs one hour before this.
   EARLY_RUN:
     name: Early Run
-    description: Compare one hour before execution time. High-savings switches go through immediately; smaller ones wait for the final run.
+    description: Preview one hour before execution time. The Agile/Cosy switch waits for the final run.
   EARLY_SWITCH_THRESHOLD:
     name: Early Switch Threshold
-    description: At the early check, switch if savings (in pence) exceed this. Smaller savings wait for the final run. Default 20.
+    description: Used only when the account is not hopping between Agile and Cosy. Default 20.
+  FORWARD_SWITCH_THRESHOLD:
+    name: Tomorrow Switch Threshold
+    description: Predicted saving (in pence) required before joining Agile for tomorrow. A same-day move to Cosy uses the switch threshold. Default 20.
   SWITCH_THRESHOLD:
     name: Switch Threshold
     description: A value (in pence) which the saving must be before the switch occurs. Default is 2 (2p).
@@ -42,3 +45,9 @@ configuration:
   DASHBOARD_URL:
     name: Dashboard URL
     description: Public URL of this add-on, used in login notifications (for example http://homeassistant.local:5050). Leave blank if you only use the Home Assistant sidebar.
+  LATITUDE:
+    name: Latitude
+    description: House latitude for the day-ahead weather. Leave blank to use the middle of the supply region.
+  LONGITUDE:
+    name: Longitude
+    description: House longitude for the day-ahead weather. Leave blank to use the middle of the supply region.

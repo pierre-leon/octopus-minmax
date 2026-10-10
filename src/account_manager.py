@@ -1,5 +1,5 @@
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, List, Dict
 import logging
 import config
@@ -161,6 +161,30 @@ class AccountManager:
             mpan=self.mpan
         )
         return self._current_account_info
+
+    def fetch_recent_consumption(self, days: int) -> list:
+        """Half-hours from the last `days` complete days, not including today."""
+        end = date.today() - timedelta(days=1)
+        start = end - timedelta(days=days - 1)
+        return self.fetch_consumption_between(start, end)
+
+    def fetch_consumption_between(self, start: date, end: date) -> list:
+        """Half-hours from `start` through `end`, inclusive, in month-sized chunks."""
+        if not self.device_id:
+            raise Exception("ERROR: No device ID, so consumption history cannot be loaded.")
+        entries = []
+        cursor = start
+        while cursor <= end:
+            chunk_end = min(end, cursor + timedelta(days=27))
+            query = consumption_query.format(
+                device_id=self.device_id,
+                start_date=f"{cursor.isoformat()}T00:00:00Z",
+                end_date=f"{chunk_end.isoformat()}T23:59:59Z",
+            )
+            result = self.query_service.execute_gql_query(query)
+            entries.extend(result.get("smartMeterTelemetry") or [])
+            cursor = chunk_end + timedelta(days=1)
+        return entries
 
     def _web_client(self) -> OctopusWebClient:
         cookie = web_session.cookie()

@@ -20,7 +20,29 @@ EXECUTION_TIME = os.getenv("EXECUTION_TIME", "23:00")
 # smaller ones wait for the final run so a last-hour usage change can still flip the result.
 EARLY_RUN = os.getenv("EARLY_RUN", "true") in ["true", "True", "1"]
 # Savings (in pence) the early run needs before it switches without waiting.
+# Only used when the account is not hopping between Agile and Cosy.
 EARLY_SWITCH_THRESHOLD = int(os.getenv("EARLY_SWITCH_THRESHOLD", 20))
+# Predicted saving (in pence) required before joining Agile for tomorrow.
+# Falls back to the early-switch bar so an existing install keeps the higher threshold.
+FORWARD_SWITCH_THRESHOLD = int(os.getenv(
+    "FORWARD_SWITCH_THRESHOLD",
+    os.getenv("EARLY_SWITCH_THRESHOLD", 20),
+))
+
+
+def _optional_float(name: str):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+# House coordinates for the day-ahead weather. Blank uses the middle of the supply region.
+LATITUDE = _optional_float("LATITUDE")
+LONGITUDE = _optional_float("LONGITUDE")
 
 # A threshold (in pence) over which the difference between the tariffs must be before the switch happens.
 SWITCH_THRESHOLD = int(os.getenv("SWITCH_THRESHOLD", 2))

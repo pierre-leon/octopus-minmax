@@ -136,7 +136,8 @@ class ComparisonEngine:
         """
         standing_charge, unit_rates, product_code = self._get_potential_tariff_rates(
             tariff,
-            account_info.region_code
+            account_info.region_code,
+            date.today(),
         )
 
         # Store product code for potential switching
@@ -213,7 +214,44 @@ class ComparisonEngine:
 
         return period_costs
 
-    def _get_potential_tariff_rates(self, tariff: Tariff, region_code: str) -> Tuple[float, list[dict], str]:
+    def price_consumption(self, tariff: Tariff, region_code: str, day: date,
+                          consumption: list) -> TariffComparison:
+        """Price an arbitrary half-hourly profile on one tariff for one day."""
+        try:
+            standing_charge, unit_rates, product_code = self._get_potential_tariff_rates(
+                tariff, region_code, day
+            )
+        except Exception as e:
+            return TariffComparison(tariff=tariff, cost_breakdown=None, error=str(e))
+
+        tariff.product_code = product_code
+        if not unit_rates:
+            return TariffComparison(
+                tariff=tariff, cost_breakdown=None,
+                error=f"No unit rates for {tariff.display_name} on {day.isoformat()}",
+            )
+        try:
+            period_costs = self._calculate_potential_costs(consumption, unit_rates)
+        except StopIteration:
+            return TariffComparison(
+                tariff=tariff, cost_breakdown=None,
+                error=f"{tariff.display_name} rates for {day.isoformat()} do not cover the full day",
+            )
+
+        consumption_cost = sum(period["calculated_cost"] for period in period_costs)
+        total_wh = sum(float(entry.get("consumptionDelta") or 0) for entry in consumption)
+        return TariffComparison(
+            tariff=tariff,
+            cost_breakdown=CostBreakdown(
+                consumption_cost=consumption_cost,
+                standing_charge=standing_charge,
+                total_cost=consumption_cost + standing_charge,
+                total_kwh=total_wh / 1000,
+            ),
+        )
+
+    def _get_potential_tariff_rates(self, tariff: Tariff, region_code: str,
+                                    day: date) -> Tuple[float, list[dict], str]:
         """
         Get rates for a specific tariff and region
         """
@@ -264,9 +302,19 @@ class ComparisonEngine:
         if not unit_rates_link:
             raise ValueError(f"Standard unit rates link not found for region: {region_code_key}")
 
-        # Get today's rates
-        today = date.today()
-        unit_rates_link_with_time = f"{unit_rates_link}?period_from={today}T00:00:00Z&period_to={today}T23:59:59Z"
-        unit_rates = self.query_service.execute_rest_query(unit_rates_link_with_time)
+        unit_rates_link_with_time = (
+            f"{unit_rates_link}?period_from={day.isoformat()}T00:00:00Z"
+            f"&period_to={day.isoformat()}T23:59:59Z"
+        )
+        return standing_charge_inc_vat, self._collect_unit_rates(unit_rates_link_with_time), product_code
 
-        return standing_charge_inc_vat, unit_rates.get('results', []), product_code
+    def _collect_unit_rates(self, url: str) -> list:
+        """Follow pagination so a half-hourly day is not cut off at the first page."""
+        results = []
+        for _ in range(5):
+            page = self.query_service.execute_rest_query(url)
+            results.extend(page.get("results") or [])
+            url = page.get("next")
+            if not url:
+                break
+        return results

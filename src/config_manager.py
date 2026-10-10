@@ -14,6 +14,7 @@ def get_config():
             'execution_time': config.EXECUTION_TIME,
             'early_run': config.EARLY_RUN,
             'early_switch_threshold': config.EARLY_SWITCH_THRESHOLD,
+            'forward_switch_threshold': config.FORWARD_SWITCH_THRESHOLD,
             'switch_threshold': config.SWITCH_THRESHOLD,
             'tariffs': config.TARIFFS,
             'one_off_run': config.ONE_OFF_RUN,
@@ -44,6 +45,8 @@ def update_config(new_values):
             config.EARLY_RUN = False
         if 'early_switch_threshold' in new_values:
             config.EARLY_SWITCH_THRESHOLD = int(new_values['early_switch_threshold'])
+        if 'forward_switch_threshold' in new_values:
+            config.FORWARD_SWITCH_THRESHOLD = int(new_values['forward_switch_threshold'])
         if 'switch_threshold' in new_values:
             config.SWITCH_THRESHOLD = int(new_values['switch_threshold'])
         if 'tariffs' in new_values:
@@ -91,6 +94,18 @@ def validate_config(config_dict):
                 errors.append("Switch threshold must be positive")
         except ValueError:
             errors.append("Switch threshold must be a number")
+
+    if 'forward_switch_threshold' in config_dict:
+        try:
+            val = int(config_dict['forward_switch_threshold'])
+            if val < 0:
+                errors.append("Tomorrow switch threshold must be positive")
+            elif val < int(config_dict.get('switch_threshold', config.SWITCH_THRESHOLD)):
+                errors.append(
+                    "Tomorrow switch threshold must be at least the switch threshold"
+                )
+        except ValueError:
+            errors.append("Tomorrow switch threshold must be a number")
 
     if 'early_switch_threshold' in config_dict:
         try:

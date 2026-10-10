@@ -9,7 +9,12 @@ from account_manager import AccountManager
 from queries import *
 from tariff import Tariff, TARIFFS
 from query_service import QueryService
-from comparison_engine import ComparisonEngine, ComparisonResult
+from comparison_engine import ComparisonEngine, ComparisonResult, TariffComparison
+from demand_model import forecast_consumption, load_consumption_history
+from hop import (
+    decide_hop,
+    saving_pence,
+)
 from notification_service import NotificationService
 from chart import create_tariff_comparison_chart
 import logging
@@ -30,6 +35,11 @@ def early_execution_time() -> Optional[str]:
     if early == config.EXECUTION_TIME:
         return None
     return early
+
+def _total(comparison: Optional[TariffComparison]) -> Optional[float]:
+    if comparison is None or not comparison.is_valid:
+        return None
+    return comparison.total_cost
 
 def early_switch_threshold_pence() -> float:
     """Never below the normal threshold, or the early run would switch on
@@ -85,8 +95,9 @@ class BotOrchestrator:
         early = early_execution_time()
         if early:
             return (
-                f"Scheduled mode, early check at {early}, final run at {config.EXECUTION_TIME} "
-                f"(early switch if savings > £{early_switch_threshold_pence() / 100:.2f})"
+                f"Scheduled mode, early check at {early}, final run at {config.EXECUTION_TIME}. "
+                f"Agile for tomorrow needs a predicted saving over "
+                f"£{config.FORWARD_SWITCH_THRESHOLD / 100:.2f}."
             )
         return f"Scheduled mode, running at {config.EXECUTION_TIME}"
 
@@ -297,9 +308,211 @@ class BotOrchestrator:
             if cost_chart:
                 ns.send_notification(message="", image_path=cost_chart, batchable=False)
 
+        pair = self._agile_cosy_pair()
+        if pair and account_info.current_tariff.id in ("agile", "cosy"):
+            agile, cosy = pair
+            prediction, prediction_error = self._predict_tomorrow(
+                comparison_engine, account_info, agile, cosy
+            )
+            ns.send_notification(self._format_prediction(prediction, prediction_error))
+            return self._decide_hop(results, prediction, agile, cosy, phase)
+
         if phase == "early":
             return self._decide_early_switch(results, account_info)
         return self._decide_final_switch(results, account_info)
+
+    def _agile_cosy_pair(self) -> Optional[Tuple[Tariff, Tariff]]:
+        by_id = {tariff.id: tariff for tariff in self.tariffs}
+        agile, cosy = by_id.get("agile"), by_id.get("cosy")
+        if agile and cosy:
+            return agile, cosy
+        return None
+
+    def _predict_tomorrow(self, engine: ComparisonEngine, account_info: AccountInfo,
+                          agile: Tariff, cosy: Tariff):
+        tomorrow = date.today() + timedelta(days=1)
+        try:
+            if not self.account_manager.device_id:
+                raise Exception("No device ID, so consumption history cannot be loaded.")
+            history = load_consumption_history(
+                self.account_manager.device_id,
+                self.account_manager.fetch_consumption_between,
+            )
+            profile, info = forecast_consumption(
+                history,
+                tomorrow,
+                account_info.region_code,
+                latitude=config.LATITUDE,
+                longitude=config.LONGITUDE,
+            )
+        except Exception as e:
+            logger.warning(f"Could not predict tomorrow: {e}")
+            return None, str(e)
+
+        if not profile:
+            return None, info.get("detail") or "No consumption history to predict tomorrow from."
+
+        return {
+            "tomorrow": tomorrow,
+            "days": info.get("days"),
+            "method": info.get("method"),
+            "detail": info.get("detail") or "",
+            "walk_forward_daily_kwh": info.get("walk_forward_daily_kwh"),
+            "agile": engine.price_consumption(agile, account_info.region_code, tomorrow, profile),
+            "cosy": engine.price_consumption(cosy, account_info.region_code, tomorrow, profile),
+        }, None
+
+    def _format_prediction(self, prediction: Optional[dict], error: Optional[str]) -> str:
+        if error or not prediction:
+            return f"No prediction for tomorrow. {error or ''}".strip()
+        if prediction.get("method") == "ensemble":
+            err = prediction.get("walk_forward_daily_kwh")
+            err_txt = f" Recent daily error about {err:.2f} kWh." if err is not None else ""
+            head = f"Tomorrow, from the half-hour ensemble trained on {prediction['days']} days.{err_txt}"
+        else:
+            detail = prediction.get("detail") or ""
+            head = f"Tomorrow, from the same-slot average of {prediction['days']} days. {detail}".strip()
+        lines = [head]
+        for key in ("agile", "cosy"):
+            priced = prediction[key]
+            if priced.is_valid:
+                lines.append(
+                    f"{priced.tariff.display_name}: £{priced.cost_breakdown.total_cost_pounds:.2f}"
+                )
+            else:
+                lines.append(f"{priced.tariff.display_name}: {priced.error}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _comparison_cost(results: ComparisonResult, tariff_id: str) -> Optional[float]:
+        current = results.current_tariff_comparison
+        if current.tariff.id == tariff_id:
+            return current.total_cost
+        for comparison in results.alternative_comparisons:
+            if comparison.tariff.id == tariff_id:
+                return comparison.total_cost
+        return None
+
+    def _decide_hop(self, results: ComparisonResult, prediction: Optional[dict],
+                    agile: Tariff, cosy: Tariff, phase: str) -> bool:
+        ns = self.notification_service
+        current_id = results.current_tariff_comparison.tariff.id
+        today_saving = saving_pence(
+            self._comparison_cost(results, "agile"),
+            self._comparison_cost(results, "cosy"),
+        )
+        today_cosy_cheaper = (
+            today_saving is not None and today_saving > config.SWITCH_THRESHOLD
+        )
+
+        tomorrow_saving = None
+        tomorrow_agile_cheaper = False
+        if prediction:
+            tomorrow_saving = saving_pence(
+                _total(prediction["cosy"]),
+                _total(prediction["agile"]),
+            )
+            tomorrow_agile_cheaper = (
+                tomorrow_saving is not None
+                and tomorrow_saving > config.FORWARD_SWITCH_THRESHOLD
+            )
+
+        targets = [agile if tariff_id == "agile" else cosy
+                   for tariff_id in decide_hop(current_id, today_cosy_cheaper, tomorrow_agile_cheaper)]
+        ns.send_notification(self._format_hop_plan(
+            current_id, today_saving, today_cosy_cheaper, tomorrow_saving,
+            tomorrow_agile_cheaper, targets, phase,
+        ))
+        if phase == "early" or not targets:
+            return False
+        return self._perform_hop(targets)
+
+    def _format_hop_plan(self, current_id: str, today_saving: Optional[float],
+                         today_cosy_cheaper: bool, tomorrow_saving: Optional[float],
+                         tomorrow_agile_cheaper: bool, targets: list, phase: str) -> str:
+        lines = []
+        if today_saving is None:
+            lines.append("Today: could not compare Agile and Cosy.")
+        elif today_cosy_cheaper:
+            lines.append(
+                f"Today: Cosy is £{today_saving / 100:.2f} cheaper than Agile "
+                f"(over the £{config.SWITCH_THRESHOLD / 100:.2f} bar)."
+            )
+        elif today_saving > 0:
+            lines.append(
+                f"Today: Cosy is only £{today_saving / 100:.2f} cheaper, below the "
+                f"£{config.SWITCH_THRESHOLD / 100:.2f} bar."
+            )
+        else:
+            lines.append(f"Today: Agile is £{-today_saving / 100:.2f} cheaper than Cosy.")
+
+        if tomorrow_saving is None:
+            lines.append("Tomorrow: no Agile prediction, so not joining Agile.")
+        elif tomorrow_agile_cheaper:
+            lines.append(
+                f"Tomorrow: Agile is £{tomorrow_saving / 100:.2f} cheaper than Cosy "
+                f"(over the £{config.FORWARD_SWITCH_THRESHOLD / 100:.2f} bar)."
+            )
+        elif tomorrow_saving > 0:
+            lines.append(
+                f"Tomorrow: Agile is only £{tomorrow_saving / 100:.2f} cheaper, below the "
+                f"£{config.FORWARD_SWITCH_THRESHOLD / 100:.2f} bar."
+            )
+        else:
+            lines.append(f"Tomorrow: Cosy is £{-tomorrow_saving / 100:.2f} cheaper than Agile.")
+
+        if current_id == "agile" and not today_cosy_cheaper:
+            if tomorrow_agile_cheaper or tomorrow_saving is None:
+                lines.append("Staying on Agile.")
+            else:
+                lines.append(
+                    "Staying on Agile. A Cosy day tomorrow can be switched once it has been metered."
+                )
+        elif not targets:
+            lines.append(f"Staying on {current_id.title()}.")
+        else:
+            names = " then ".join(tariff.display_name for tariff in targets)
+            lines.append(f"Switching to {names}.")
+
+        if phase == "early" and targets:
+            lines.append(f"Not switching yet. This runs at {config.EXECUTION_TIME}.")
+        return "\n".join(lines)
+
+    def _perform_hop(self, targets: list) -> bool:
+        ns = self.notification_service
+        if config.DRY_RUN:
+            for index, target in enumerate(targets):
+                if index:
+                    ns.send_notification(
+                        "DRY RUN: after the previous switch completed, the next request would be:"
+                    )
+                self._preview_switch(target)
+            return True
+        if not QueryService.has_switch_auth():
+            ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
+            return False
+
+        submitted = False
+        for index, target in enumerate(targets):
+            if index:
+                ns.send_notification(
+                    f"First switch completed. Switching to {target.display_name} for tomorrow."
+                )
+            status = self._execute_switch(target)
+            if status == "failed":
+                if index:
+                    ns.send_notification(
+                        f"Could not switch on to {target.display_name}. "
+                        "Tomorrow stays on the tariff just started."
+                    )
+                return submitted
+            submitted = True
+            if status != "completed" and index + 1 < len(targets):
+                ns.send_notification(
+                    f"{target.display_name} did not finish, so the follow-on switch was not started."
+                )
+                return True
+        return True
 
     def _decide_early_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
         ns = self.notification_service
@@ -345,7 +558,8 @@ class BotOrchestrator:
         if not QueryService.has_switch_auth():
             ns.send_notification(switch_login_needed_message(), title="Octopus Login Required", batchable=False)
             return False
-        return self._execute_switch(target, account_info)
+        # Submitted counts: the final run must not send the same enrolment again.
+        return self._execute_switch(target) != "failed"
 
     def _preview_switch(self, target_tariff: Tariff) -> None:
         """Run every pre-flight check and show the request, without sending it."""
@@ -381,13 +595,18 @@ class BotOrchestrator:
             return 0
         return int(min(default_wait, remaining))
 
-    def _execute_switch(self, target_tariff: Tariff, account_info: AccountInfo) -> bool:
+    def _execute_switch(self, target_tariff: Tariff) -> str:
+        """Returns 'completed', 'submitted', or 'failed'.
+
+        'submitted' means the enrolment was sent but not confirmed, so a follow-on
+        switch must not start and the same enrolment must not be sent again.
+        """
         ns = self.notification_service
 
         enrolment_id = self.account_manager.initiate_tariff_switch(target_tariff)
         if not enrolment_id:
             ns.send_notification("ERROR: Couldn't get enrolment ID")
-            return False
+            return "failed"
 
         wait_time = self._wait_before_accepting()
         if wait_time:
@@ -408,13 +627,12 @@ class BotOrchestrator:
 
         state = self.account_manager.wait_for_enrolment_to_complete(enrolment_id)
         if state and (state["agreement_status"] == "COMPLETED" or state["status"] == "COMPLETED"):
-            ns.send_notification("Verified new agreement successfully. Process finished.")
-            return True
+            ns.send_notification(f"Verified {target_tariff.display_name}. Enrolment {enrolment_id} completed.")
+            return "completed"
 
         ns.send_notification(
-            f"Unable to verify new agreement after retry. "
+            f"Unable to verify {target_tariff.display_name} after retry. "
             f"Please check your account and emails.\n"
             f"https://octopus.energy/dashboard/new/accounts/{config.ACC_NUMBER}/messages"
         )
-        # Enrolment was submitted; do not try again an hour later.
-        return True
+        return "submitted"

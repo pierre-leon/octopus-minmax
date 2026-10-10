@@ -1,6 +1,6 @@
 ---
 name: Octopus MinMax Bot
-image: eelmafia/octopus-minmax-bot
+image: pierreleon/octopus-minmax-bot
 url: https://github.com/eelmafia/octopus-minmax
 ingress: true
 ingress_port: 5050
@@ -9,7 +9,7 @@ ports:
 ports_description:
   5050/tcp: Web UI (optional external access)
 webui: http://[HOST]:[PORT:5050]/
-version: v1.0.9
+version: v1.0.22-PL
 slug: octopus_minmax_bot
 startup: application
 init: false
@@ -26,11 +26,12 @@ options:
   EXECUTION_TIME: "23:00"
   EARLY_RUN: true
   EARLY_SWITCH_THRESHOLD: 20
+  FORWARD_SWITCH_THRESHOLD: 20
   SWITCH_THRESHOLD: 2
   ONE_OFF: false
   DRY_RUN: false
   NOTIFICATION_URLS: ""
-  TARIFFS: "agile,go,flexible"
+  TARIFFS: "agile,cosy,flexible"
   TZ: "Europe/London"
   BATCH_NOTIFICATIONS: false
   SEND_COMPARISON_CHART: true
@@ -38,12 +39,15 @@ options:
   WEB_PASSWORD: "admin"
   DASHBOARD_URL: ""
   SESSION_RENEWAL_LEAD_DAYS: 2
+  LATITUDE: ""
+  LONGITUDE: ""
 schema:
   API_KEY: str
   ACC_NUMBER: str
   EXECUTION_TIME: str
   EARLY_RUN: bool
   EARLY_SWITCH_THRESHOLD: int
+  FORWARD_SWITCH_THRESHOLD: int
   SWITCH_THRESHOLD: int
   ONE_OFF: bool
   DRY_RUN: bool
@@ -56,3 +60,5 @@ schema:
   WEB_PASSWORD: password
   DASHBOARD_URL: str
   SESSION_RENEWAL_LEAD_DAYS: int?
+  LATITUDE: str?
+  LONGITUDE: str?
