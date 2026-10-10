@@ -6,7 +6,7 @@ import config
 import web_session
 from account_info import AccountInfo
 from tariff import Tariff, match_known_tariff
-from query_service import QueryService
+from query_service import PermanentGqlError, QueryService
 from octopus_web import (
     OctopusWebClient,
     ineligibility_reasons,
@@ -18,10 +18,23 @@ from queries import (
     accept_terms_query,
     account_query,
     consumption_query,
-    enrolment_query
+    enrolment_query,
+    measurements_query,
+)
+from meter_history import (
+    MAX_PAGES,
+    half_hours_from_measurements,
+    iter_chunks,
+    measurement_page_info,
+    measurement_variables,
 )
 
 logger = logging.getLogger('octobot.account_manager')
+
+
+def _auth_failure(exc: Exception) -> bool:
+    text = str(exc)
+    return "401" in text or "403" in text or "No API_KEY" in text
 
 # Statuses that mean an enrolment is over and must not be mistaken for a new one.
 TERMINAL_ENROLMENT_STATUSES = {
@@ -169,22 +182,55 @@ class AccountManager:
         return self.fetch_consumption_between(start, end)
 
     def fetch_consumption_between(self, start: date, end: date) -> list:
-        """Half-hours from `start` through `end`, inclusive, in month-sized chunks."""
-        if not self.device_id:
-            raise Exception("ERROR: No device ID, so consumption history cannot be loaded.")
-        entries = []
-        cursor = start
-        while cursor <= end:
-            chunk_end = min(end, cursor + timedelta(days=27))
-            query = consumption_query.format(
-                device_id=self.device_id,
-                start_date=f"{cursor.isoformat()}T00:00:00Z",
-                end_date=f"{chunk_end.isoformat()}T23:59:59Z",
+        """Half-hours from `start` through `end`, inclusive.
+
+        Same query as the usage page: a month at a time, 300 intervals per page.
+        """
+        if not self.mpan or not self.device_id:
+            self.fetch_current_account_info()
+        if not self.mpan or not self.device_id:
+            raise Exception("No device ID, so consumption history cannot be loaded.")
+
+        readings: Dict[str, float] = {}
+        failures = 0
+        for chunk_start, chunk_end in iter_chunks(start, end):
+            try:
+                readings.update(self._measurement_chunk(chunk_start, chunk_end))
+            except Exception as exc:
+                failures += 1
+                logger.warning(f"Measurements {chunk_start} to {chunk_end} failed: {exc}")
+                if isinstance(exc, PermanentGqlError) or _auth_failure(exc):
+                    break
+        if not readings and failures:
+            raise Exception("Meter consumption history could not be loaded.")
+        return [
+            {"readAt": stamp, "consumptionDelta": value}
+            for stamp, value in readings.items()
+        ]
+
+    def _measurement_chunk(self, start: date, end: date) -> Dict[str, float]:
+        found: Dict[str, float] = {}
+        cursor = None
+        pages = 0
+        while pages < MAX_PAGES:
+            variables = measurement_variables(
+                self.config.ACC_NUMBER, self.mpan, self.device_id, start, end, cursor,
             )
-            result = self.query_service.execute_gql_query(query)
-            entries.extend(result.get("smartMeterTelemetry") or [])
-            cursor = chunk_end + timedelta(days=1)
-        return entries
+            result = self.query_service.execute_gql_query(
+                measurements_query, variables, operation_name="getMeasurements",
+            )
+            page, unknown = half_hours_from_measurements((result or {}).get("account") or {})
+            if unknown:
+                logger.warning(f"Skipping measurements with unrecognised units: {sorted(unknown)}")
+            found.update(page)
+            info = measurement_page_info((result or {}).get("account") or {})
+            pages += 1
+            if not info.get("hasNextPage") or not info.get("endCursor"):
+                logger.info(f"Measurements {start} to {end}: {len(found)} half-hours over {pages} pages")
+                return found
+            cursor = info["endCursor"]
+        logger.warning(f"Measurements {start} to {end} stopped after {pages} pages")
+        return found
 
     def _web_client(self) -> OctopusWebClient:
         cookie = web_session.cookie()

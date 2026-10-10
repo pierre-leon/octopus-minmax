@@ -10,6 +10,21 @@ import config
 logger = logging.getLogger('octobot.query_service')
 MAX_RETRIES = 5
 BASE_WAIT_BEFORE_RETRY_SECONDS = 30
+PERMANENT_GQL_CODES = {"KT-CT-1111", "KT-GB-4051"}
+
+
+class PermanentGqlError(Exception):
+    """A query Octopus rejected outright. Retrying it will not change the answer."""
+
+
+def gql_errors_are_permanent(errors) -> bool:
+    for error in errors or []:
+        extensions = (error or {}).get("extensions") or {}
+        if extensions.get("errorType") == "VALIDATION":
+            return True
+        if extensions.get("errorCode") in PERMANENT_GQL_CODES:
+            return True
+    return False
 
 _token_lock = threading.RLock()
 
@@ -87,8 +102,9 @@ class QueryService:
             logger.error(f"Failed to get token: {type(e).__name__} - {e}")
             raise Exception(f"Failed to get token: {e}")
 
-    def execute_gql_query(self, query: str):
-        logger.debug(f"Executing GQL query: '{query}'")
+    def execute_gql_query(self, query: str, variables: Optional[dict] = None,
+                          operation_name: Optional[str] = None):
+        logger.debug(f"Executing GQL query: '{operation_name or query}'")
         retry = 0
         token_refreshed = False
         while retry < MAX_RETRIES:
@@ -103,8 +119,10 @@ class QueryService:
 
             payload = {
                 "query": query,
-                "variables": {}
+                "variables": variables or {},
             }
+            if operation_name:
+                payload["operationName"] = operation_name
             try:
                 response = requests.post(
                     self.graphql_endpoint,
@@ -117,7 +135,8 @@ class QueryService:
                 if response.ok:
                     result = response.json()
                     if "errors" in result:
-                        error_codes = [e.get("extensions", {}).get("errorCode") for e in result.get("errors", [])]
+                        errors = result.get("errors") or []
+                        error_codes = [e.get("extensions", {}).get("errorCode") for e in errors]
                         if "KT-CT-1124" in error_codes and not token_refreshed:
                             logger.debug("JWT expired, refreshing token...")
                             try:
@@ -126,9 +145,10 @@ class QueryService:
                                 continue  # Retry with new token
                             except Exception as e:
                                 logger.warning(f"Failed to refresh token: {e}")
-                        if "KT-CT-1111" in error_codes:
-                            raise Exception(f"GQL errors: {result['errors']}")
-                        raise Exception(f"GQL errors: {result['errors']}")
+                        if gql_errors_are_permanent(errors):
+                            logger.warning(f"GQL query rejected: {errors}")
+                            raise PermanentGqlError(f"GQL errors: {errors}")
+                        raise Exception(f"GQL errors: {errors}")
 
                     data = result.get("data")
                     if data and isinstance(data, dict) and len(data) > 0:
@@ -146,6 +166,8 @@ class QueryService:
                     except Exception as e:
                         logger.warning(f"Failed to refresh token: {e}")
 
+            except PermanentGqlError:
+                raise
             except Exception as e:
                 logger.warning(f"Request exception on attempt {retry + 1}/{MAX_RETRIES}: {type(e).__name__} - {e}")
                 if retry == MAX_RETRIES - 1:
@@ -164,13 +186,24 @@ class QueryService:
             retry += 1
             time.sleep(wait_time)
 
-    def execute_rest_query(self, url: str):
-        logger.info(f"Executing REST query: {url}")
+    def execute_rest_query(self, url: str, auth: bool = False, quiet: bool = False):
+        logger.info(f"Executing REST query: {url.split('?')[0]}")
         try:
-            response = requests.get(url, timeout=60)
-            logger.debug(f"REST query response: status={response.status_code} | body={response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text[:200]}")
+            kwargs = {"timeout": 60}
+            if auth:
+                if not self.api_key:
+                    raise Exception("No API_KEY set.")
+                kwargs["auth"] = (self.api_key, "")
+            response = requests.get(url, **kwargs)
+            if quiet:
+                logger.debug(
+                    f"REST query response: status={response.status_code} bytes={len(response.content)}"
+                )
+            else:
+                body = response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text[:200]
+                logger.debug(f"REST query response: status={response.status_code} | body={body}")
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.exception(f"Request failed for {url}: {type(e).__name__} - {e}")
-            raise Exception(f"ERROR: Request failed for {url}: {type(e).__name__} - {e}")
+            logger.exception(f"Request failed for {url.split('?')[0]}: {type(e).__name__} - {e}")
+            raise Exception(f"ERROR: Request failed for {url.split('?')[0]}: {type(e).__name__} - {e}")

@@ -30,6 +30,9 @@ get_terms_version_query = """query {{
     }}
 }}"""
 
+# Live half-hours from the home device. A start older than 30 days is rejected
+# (KT-GB-4051). Longer history uses measurements_query, which is what the
+# usage page requests, 300 intervals at a time.
 consumption_query = """query {{
     smartMeterTelemetry(
         deviceId: "{device_id}"
@@ -113,6 +116,45 @@ account_query = """query{{
         }}
     }}
 }}"""
+measurements_query = """query getMeasurements(
+    $accountNumber: String!
+    $first: Int!
+    $utilityFilters: [UtilityFiltersInput!]
+    $startAt: DateTime
+    $endAt: DateTime
+    $timezone: String
+    $cursor: String
+) {
+    account(accountNumber: $accountNumber) {
+        properties {
+            measurements(
+                first: $first
+                utilityFilters: $utilityFilters
+                startAt: $startAt
+                endAt: $endAt
+                timezone: $timezone
+                after: $cursor
+            ) {
+                edges {
+                    node {
+                        value
+                        unit
+                        ... on IntervalMeasurementType {
+                            startAt
+                            endAt
+                            durationInSeconds
+                        }
+                    }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
+    }
+}"""
+
 enrolment_query = """query {{
     productEnrolments(accountNumber: "{acc_number}") {{
         id
