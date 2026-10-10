@@ -352,14 +352,17 @@ class BotOrchestrator:
         if not profile:
             return None, info.get("detail") or "No consumption history to predict tomorrow from."
 
+        agile_price, cosy_price = engine.price_shared(
+            [agile, cosy], account_info.region_code, tomorrow, profile
+        )
         return {
             "tomorrow": tomorrow,
             "days": info.get("days"),
             "method": info.get("method"),
             "detail": info.get("detail") or "",
             "walk_forward_daily_kwh": info.get("walk_forward_daily_kwh"),
-            "agile": engine.price_consumption(agile, account_info.region_code, tomorrow, profile),
-            "cosy": engine.price_consumption(cosy, account_info.region_code, tomorrow, profile),
+            "agile": agile_price,
+            "cosy": cosy_price,
         }, None
 
     def _format_prediction(self, prediction: Optional[dict], error: Optional[str]) -> str:
@@ -381,6 +384,9 @@ class BotOrchestrator:
                 )
             else:
                 lines.append(f"{priced.tariff.display_name}: {priced.error}")
+        note = prediction["agile"].note or prediction["cosy"].note
+        if note:
+            lines.append(note)
         return "\n".join(lines)
 
     @staticmethod

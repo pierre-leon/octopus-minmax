@@ -7,6 +7,43 @@ from account_info import AccountInfo
 from query_service import QueryService
 import logging
 logger = logging.getLogger('octobot.comparison_engine')
+
+
+def _stamp(raw: str) -> str:
+    return raw.replace("+00:00", "Z")
+
+
+def rate_covers(rate: dict, read_time: str) -> bool:
+    """A half-hour belongs to [valid_from, valid_to). An open-ended rate has no end."""
+    if rate.get("payment_method") not in (None, "DIRECT_DEBIT"):
+        return False
+    start = rate.get("valid_from") or ""
+    end = rate.get("valid_to")
+    if end:
+        return start <= read_time < end
+    return start <= read_time
+
+
+def covered_rows(consumption: list, rate_groups: List[list]) -> Tuple[list, int]:
+    """Rows that every tariff can price, and how many half-hours were left out."""
+    kept = []
+    skipped = 0
+    for row in consumption:
+        read_time = _stamp(row["readAt"])
+        matched = []
+        for rates in rate_groups:
+            rate = next((item for item in rates if rate_covers(item, read_time)), None)
+            if rate is None:
+                matched = None
+                break
+            matched.append(rate)
+        if matched is None:
+            skipped += 1
+        else:
+            kept.append((row, matched))
+    return kept, skipped
+
+
 @dataclass
 class CostBreakdown:
     """Breakdown of electricity costs."""
@@ -33,6 +70,7 @@ class TariffComparison:
     tariff: Tariff
     cost_breakdown: Optional[CostBreakdown]
     error: Optional[str] = None
+    note: Optional[str] = None
 
     @property
     def is_valid(self) -> bool:
@@ -213,6 +251,75 @@ class ComparisonEngine:
             })
 
         return period_costs
+
+    def price_shared(self, tariffs: List[Tariff], region_code: str, day: date,
+                     consumption: list) -> List[TariffComparison]:
+        """Price one profile on several tariffs, using only half-hours every tariff covers.
+
+        Agile's next day often stops at 22:30 local when this runs, and the
+        forecast's last stamp is 00:30 the next morning. One gap used to
+        reject the whole day.
+        """
+        loaded = []
+        for tariff in tariffs:
+            try:
+                standing_charge, unit_rates, product_code = self._get_potential_tariff_rates(
+                    tariff, region_code, day
+                )
+            except Exception as e:
+                return [
+                    TariffComparison(tariff=item, cost_breakdown=None, error=str(e))
+                    for item in tariffs
+                ]
+            tariff.product_code = product_code
+            if not unit_rates:
+                return [
+                    TariffComparison(
+                        tariff=item, cost_breakdown=None,
+                        error=f"No unit rates for {item.display_name} on {day.isoformat()}",
+                    )
+                    for item in tariffs
+                ]
+            loaded.append((tariff, standing_charge, unit_rates))
+
+        groups = [rates for _, _, rates in loaded]
+        kept, skipped = covered_rows(consumption, groups)
+        if not kept:
+            return [
+                TariffComparison(
+                    tariff=tariff, cost_breakdown=None,
+                    error=f"{tariff.display_name} rates for {day.isoformat()} do not cover the full day",
+                )
+                for tariff, _, _ in loaded
+            ]
+
+        note = None
+        if skipped:
+            note = (
+                f"Priced {len(kept)} of {len(consumption)} half-hours. "
+                "Slots one tariff had not published were left out of both."
+            )
+        priced = []
+        for index, (tariff, standing_charge, _) in enumerate(loaded):
+            consumption_cost = 0.0
+            total_wh = 0.0
+            for row, matched in kept:
+                rate = matched[index]
+                wh = float(row.get("consumptionDelta") or 0)
+                kwh = wh / 1000
+                consumption_cost += float(f"{kwh * rate['value_inc_vat']:.4f}")
+                total_wh += wh
+            priced.append(TariffComparison(
+                tariff=tariff,
+                cost_breakdown=CostBreakdown(
+                    consumption_cost=consumption_cost,
+                    standing_charge=standing_charge,
+                    total_cost=consumption_cost + standing_charge,
+                    total_kwh=total_wh / 1000,
+                ),
+                note=note,
+            ))
+        return priced
 
     def price_consumption(self, tariff: Tariff, region_code: str, day: date,
                           consumption: list) -> TariffComparison:
