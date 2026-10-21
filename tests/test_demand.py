@@ -20,7 +20,13 @@ from demand_features import (
     slot_training_frame,
     walk_forward_folds,
 )
-from demand_model import TrainSettings, blend_predictions, forecast_consumption, load_consumption_history
+from demand_model import (
+    TrainSettings,
+    _fill_lookback,
+    blend_predictions,
+    forecast_consumption,
+    load_consumption_history,
+)
 
 
 class FeatureTests(unittest.TestCase):
@@ -121,6 +127,16 @@ class NetworkTests(unittest.TestCase):
 
 
 class ForecastTests(unittest.TestCase):
+    def test_a_short_sunday_does_not_block_saturday(self):
+        # Rows are Sat, Sun, Mon. Sunday is empty. Monday should still see Saturday.
+        consumption = np.full((3, SLOTS), np.nan)
+        consumption[0] = 10.0
+        consumption[2, 0] = 3.0
+        _fill_lookback(consumption, target_index=3, lookback=3)
+        self.assertEqual(consumption[1, 5], 10.0)
+        self.assertEqual(consumption[2, 5], 10.0)
+        self.assertEqual(consumption[2, 0], 3.0)
+
     def test_blend_is_an_equal_average(self):
         blended = blend_predictions(
             np.array([0.0, 4.0]),
@@ -129,7 +145,7 @@ class ForecastTests(unittest.TestCase):
         )
         np.testing.assert_allclose(blended, [5.0, 3.0])
 
-    def test_history_cache_refreshes_the_last_two_days(self):
+    def test_history_cache_refreshes_the_week_before_tomorrow(self):
         today = date(2026, 10, 10)
         calls = []
 
@@ -143,7 +159,7 @@ class ForecastTests(unittest.TestCase):
             self.assertEqual(calls[0], (today - timedelta(days=10), today))
             self.assertEqual(len(first), 1)
             load_consumption_history("meter", fetch, today, path, history_days=10)
-            self.assertEqual(calls[1][0], today - timedelta(days=2))
+            self.assertEqual(calls[1][0], today - timedelta(days=6))
 
     def test_ensemble_forecasts_48_slots(self):
         start = date(2026, 1, 1)

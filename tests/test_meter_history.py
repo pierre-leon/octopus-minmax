@@ -74,7 +74,7 @@ class MeterHistoryTests(unittest.TestCase):
             "A-1", "mpan", "device", date(2025, 12, 2), date(2025, 12, 31), "cursor-1",
         )
         filters = variables["utilityFilters"][0]["electricityFilters"]
-        self.assertEqual(variables["first"], 300)
+        self.assertEqual(variables["first"], 500)
         self.assertEqual(variables["startAt"], "2025-12-02T00:00:00.000Z")
         self.assertEqual(variables["endAt"], "2025-12-31T23:59:59.999Z")
         self.assertEqual(variables["cursor"], "cursor-1")

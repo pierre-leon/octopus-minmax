@@ -88,12 +88,14 @@ def blend_predictions(lightgbm_slots: np.ndarray, catboost_slots: np.ndarray,
 
 def load_consumption_history(device_id: str, fetch_between: Callable, today: Optional[date] = None,
                              cache_path: Optional[str] = None, history_days: int = HISTORY_DAYS) -> list:
-    """Cached half-hours through today. The last two days are always re-read."""
+    """Cached half-hours through today. The week the forecast reads is always re-read."""
     today = today or date.today()
     start = today - timedelta(days=history_days)
     path = cache_path or os.path.join(data_dir(), "demand_history.json")
     cached = _read_history_cache(path, device_id)
-    fetch_start = start if not cached else max(start, today - timedelta(days=2))
+    # Tomorrow's model reads the seven days ending today. One measurements
+    # range covers that week; 500 readings fits it in a single response.
+    fetch_start = start if not cached else max(start, today - timedelta(days=LOOKBACK_DAYS - 1))
     try:
         fresh = fetch_between(fetch_start, today)
     except Exception as exc:
@@ -454,18 +456,29 @@ def _predict_trees(grid, dates, weather, target_index, columns, medians, directo
     return lightgbm_slots, catboost_slots
 
 
+def _fill_lookback(consumption: np.ndarray, target_index: int, lookback: int) -> None:
+    """Fill holes in the week before `target_index` from the latest real slot.
+
+    Walking newest-first copies Monday from a short Sunday and never reaches
+    Saturday. Carrying the last real reading forward crosses a short day.
+    """
+    start = max(0, target_index - lookback)
+    for slot in range(consumption.shape[1]):
+        last = np.nan
+        if start > 0 and np.isfinite(consumption[start - 1, slot]):
+            last = consumption[start - 1, slot]
+        for day in range(start, target_index):
+            if np.isfinite(consumption[day, slot]):
+                last = consumption[day, slot]
+            elif np.isfinite(last):
+                consumption[day, slot] = last
+
+
 def _predict_sequence(cube, target_index, directory) -> np.ndarray:
     weights = np.ones(cube["consumption"].shape[0])
     usable = dict(cube)
     consumption = cube["consumption"].copy()
-    # The run is in the evening, but a missing hour should not drop the whole week.
-    for day in range(target_index - 1, max(-1, target_index - LOOKBACK_DAYS - 1), -1):
-        if day <= 0:
-            break
-        if int(np.isfinite(consumption[day]).sum()) >= 20:
-            continue
-        missing = ~np.isfinite(consumption[day])
-        consumption[day, missing] = consumption[day - 1, missing]
+    _fill_lookback(consumption, target_index, LOOKBACK_DAYS)
     usable["consumption"] = consumption
     sequences, _targets, _weights = sequence_batch(
         usable, [target_index], weights, LOOKBACK_DAYS, require_target=False,

@@ -1,7 +1,8 @@
 """Half-hourly history from the website's measurements query.
 
 The live telemetry feed rejects a start older than 30 days. The usage page
-reads `measurements` instead, a month at a time, 300 intervals per page.
+reads `measurements` instead, a month at a time. A week of half-hours
+fits in one page.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Dict, Optional, Tuple
 
 
 CHUNK_DAYS = 28
-PAGE_SIZE = 300
+PAGE_SIZE = 500
 MAX_PAGES = 20
 HALF_HOUR_SECONDS = 1800
 

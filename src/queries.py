@@ -32,7 +32,7 @@ get_terms_version_query = """query {{
 
 # Live half-hours from the home device. A start older than 30 days is rejected
 # (KT-GB-4051). Longer history uses measurements_query, which is what the
-# usage page requests, 300 intervals at a time.
+# usage page requests. A week of half-hours fits in one page.
 consumption_query = """query {{
     smartMeterTelemetry(
         deviceId: "{device_id}"

@@ -184,7 +184,7 @@ class AccountManager:
     def fetch_consumption_between(self, start: date, end: date) -> list:
         """Half-hours from `start` through `end`, inclusive.
 
-        Same query as the usage page: a month at a time, 300 intervals per page.
+        Same query as the usage page: a month at a time. A week fits in one page.
         """
         if not self.mpan or not self.device_id:
             self.fetch_current_account_info()
