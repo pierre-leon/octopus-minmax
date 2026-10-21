@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from tariff import Tariff
 import config
-from datetime import date
+from datetime import date, datetime, timedelta
 from account_info import AccountInfo
 from query_service import QueryService
 import logging
@@ -42,6 +42,31 @@ def covered_rows(consumption: list, rate_groups: List[list]) -> Tuple[list, int]
         else:
             kept.append((row, matched))
     return kept, skipped
+
+
+def rate_value_at(rates: list, stamp: str):
+    """Unit rate in p/kWh for one half-hour, or None when nothing covers it."""
+    read_time = _stamp(stamp)
+    rate = next((item for item in rates if rate_covers(item, read_time)), None)
+    if rate is None:
+        return None
+    return float(rate["value_inc_vat"])
+
+
+def _day_earlier(stamp: str) -> str:
+    moment = datetime.fromisoformat(_stamp(stamp).replace("Z", "+00:00"))
+    return (moment - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def cosy_series(today_rates: list, yesterday_rates: list, stamps: list) -> list:
+    """Cosy p/kWh for each stamp. A gap takes the same clock time yesterday."""
+    series = []
+    for stamp in stamps:
+        value = rate_value_at(today_rates, stamp)
+        if value is None and yesterday_rates:
+            value = rate_value_at(yesterday_rates, _day_earlier(stamp))
+        series.append(value)
+    return series
 
 
 @dataclass

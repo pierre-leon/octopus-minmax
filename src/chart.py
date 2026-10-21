@@ -1,32 +1,53 @@
 import logging
 import os
+from datetime import datetime
 from typing import Optional, Sequence
+from zoneinfo import ZoneInfo
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 
 from comparison_engine import ComparisonResult
 
 logger = logging.getLogger("octobot.chart")
 
-STANDING_COLOR = "#9A3B3B"
-CONSUMPTION_COLOR = "#632626"
+_LONDON = ZoneInfo("Europe/London")
+_INK = "#121212"
+_GRID = "#2c2c2c"
+_STANDING = "#146B45"
+_CONSUMPTION = "#3DDC97"
+_ON_CONSUMPTION = "#10241c"
+_AGILE = "#F0C14A"
+_COSY = "#FF7A59"
+
+STANDING_COLOR = _STANDING
+CONSUMPTION_COLOR = _CONSUMPTION
+
+
+def _chart_directory() -> str:
+    for directory in ("/data", "/app/logs", "/tmp"):
+        if os.path.isdir(directory) and os.access(directory, os.W_OK):
+            return directory
+    return "/tmp"
 
 
 def _chart_path() -> str:
-    for directory in ("/data", "/app/logs", "/tmp"):
-        if os.path.isdir(directory) and os.access(directory, os.W_OK):
-            return os.path.join(directory, "tariff_comparison.jpg")
-    return "/tmp/tariff_comparison.jpg"
+    return os.path.join(_chart_directory(), "tariff_comparison.jpg")
+
+
+def _forecast_path() -> str:
+    return os.path.join(_chart_directory(), "forecast_tomorrow.jpg")
 
 
 def _pounds(value: float) -> str:
     return f"£{value:.2f}"
 
 
-def _label(ax, x: float, y: float, text: str, va: str = "center", ha: str = "center") -> None:
-    ax.text(x, y, text, ha=ha, va=va, color="white", fontsize=9, clip_on=True)
+def _label(ax, x: float, y: float, text: str, va: str = "center", ha: str = "center",
+          color: str = "white") -> None:
+    ax.text(x, y, text, ha=ha, va=va, color=color, fontsize=9, clip_on=True)
 
 
 def _draw_cost_bars(
@@ -92,7 +113,7 @@ def _draw_cost_bars(
             if standing >= min_inside:
                 _label(ax, cx, standing / 2, _pounds(standing))
             if consumption >= min_inside:
-                _label(ax, cx, standing + consumption / 2, _pounds(consumption))
+                _label(ax, cx, standing + consumption / 2, _pounds(consumption), color=_ON_CONSUMPTION)
             _label(ax, cx, total + total_offset, _pounds(total), va="bottom")
             continue
 
@@ -104,24 +125,27 @@ def _draw_cost_bars(
 
         if total < 0:
             if abs(total) >= min_inside:
-                _label(ax, cx, total / 2, _pounds(consumption))
+                _label(ax, cx, total / 2, _pounds(consumption), color=_ON_CONSUMPTION)
             elif hatch_h >= min_inside:
-                _label(ax, cx, hatch_b + hatch_h / 2, _pounds(consumption))
+                _label(ax, cx, hatch_b + hatch_h / 2, _pounds(consumption), color=_ON_CONSUMPTION)
             else:
                 _label(ax, cx + 0.42, (total / 2) if total else standing / 2, _pounds(consumption), ha="left")
             _label(ax, cx, total - total_offset, _pounds(total), va="top")
         else:
             if hatch_h >= min_inside:
-                _label(ax, cx, hatch_b + hatch_h / 2, _pounds(consumption))
+                _label(ax, cx, hatch_b + hatch_h / 2, _pounds(consumption), color=_ON_CONSUMPTION)
             elif hatch_h > 0:
-                _label(ax, cx + 0.42, hatch_b + hatch_h / 2, _pounds(consumption), ha="left")
+                _label(ax, cx + 0.42, hatch_b + hatch_h / 2, _pounds(consumption), ha="left", color=_ON_CONSUMPTION)
             _label(ax, cx, standing + total_offset, _pounds(total), va="bottom")
 
     ax.set_ylabel("Cost (£)", color="white")
     ax.set_xticks(xs)
     ax.set_xticklabels(list(labels), rotation=45, ha="right", color="white")
     ax.tick_params(colors="white")
+    ax.grid(True, axis="y", color=_GRID, linewidth=0.6)
     ax.grid(False, axis="x")
+    for spine in ax.spines.values():
+        spine.set_color(_GRID)
 
 
 def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
@@ -138,8 +162,8 @@ def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
 
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(8, 6))
-    fig.patch.set_facecolor("#121212")
-    ax.set_facecolor("#121212")
+    fig.patch.set_facecolor(_INK)
+    ax.set_facecolor(_INK)
     _draw_cost_bars(ax, labels, standing_charges, consumption_costs, total_costs)
     plt.tight_layout()
 
@@ -157,4 +181,79 @@ def create_tariff_comparison_chart(result: ComparisonResult) -> Optional[str]:
         return None
 
     logger.info(f"Wrote comparison chart ({size} bytes) to {path}")
+    return path
+
+
+def _local_label(stamp: str) -> str:
+    moment = datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(_LONDON)
+    return moment.strftime("%H:%M")
+
+
+def _line(values: Sequence[Optional[float]]) -> np.ndarray:
+    return np.array([np.nan if value is None else value for value in values], dtype=float)
+
+
+def create_forecast_chart(stamps: Sequence[str], consumption_kwh: Sequence[float],
+                          agile_pence: Sequence[Optional[float]],
+                          cosy_pence: Sequence[Optional[float]],
+                          path: Optional[str] = None) -> Optional[str]:
+    """Bars for every predicted half-hour. A missing rate stops that line."""
+    count = len(stamps)
+    if count == 0 or len(consumption_kwh) != count:
+        logger.warning("Forecast chart needs one consumption value per half-hour")
+        return None
+
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(11.5, 4.4))
+    fig.patch.set_facecolor(_INK)
+    ax.set_facecolor(_INK)
+    use = ax.twinx()
+    xs = np.arange(count)
+    use.bar(xs, consumption_kwh, color=_CONSUMPTION, width=0.84, zorder=1)
+    ax.set_zorder(use.get_zorder() + 1)
+    ax.patch.set_visible(False)
+
+    if any(value is not None for value in agile_pence):
+        ax.plot(xs, _line(agile_pence), color=_AGILE, linewidth=1.8,
+                drawstyle="steps-mid", label="Agile", zorder=3)
+    if any(value is not None for value in cosy_pence):
+        ax.plot(xs, _line(cosy_pence), color=_COSY, linewidth=1.8,
+                drawstyle="steps-mid", label="Cosy", zorder=3)
+
+    ax.set_ylabel("p/kWh", color="white")
+    use.set_ylabel("kWh", color="white")
+    ax.set_ylim(bottom=0)
+    use.set_ylim(bottom=0)
+    ax.set_xlim(-0.6, count - 0.4)
+    labels = [_local_label(stamp) if index % 4 == 0 else "" for index, stamp in enumerate(stamps)]
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels, color="white", fontsize=8)
+    ax.tick_params(colors="white")
+    use.tick_params(colors="white")
+    ax.grid(True, axis="y", color=_GRID, linewidth=0.6)
+    ax.grid(False, axis="x")
+    for spine in list(ax.spines.values()) + list(use.spines.values()):
+        spine.set_color(_GRID)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        legend = ax.legend(handles, labels, loc="upper left", frameon=False, fontsize=8)
+        for text in legend.get_texts():
+            text.set_color("white")
+    plt.tight_layout()
+
+    path = path or _forecast_path()
+    try:
+        fig.savefig(path, format="jpeg", dpi=130, facecolor=fig.get_facecolor(),
+                    bbox_inches="tight", pad_inches=0.15)
+    except ValueError:
+        path = os.path.splitext(path)[0] + ".png"
+        fig.savefig(path, format="png", dpi=130, facecolor=fig.get_facecolor(),
+                    bbox_inches="tight", pad_inches=0.15)
+    plt.close(fig)
+
+    size = os.path.getsize(path) if os.path.isfile(path) else 0
+    if size <= 0:
+        logger.error(f"Forecast chart was not written to {path}")
+        return None
+    logger.info(f"Wrote forecast chart ({size} bytes) to {path}")
     return path

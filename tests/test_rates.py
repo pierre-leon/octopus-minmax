@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 sys.modules.setdefault("requests", types.ModuleType("requests"))
 
-from comparison_engine import covered_rows
+from comparison_engine import cosy_series, covered_rows, rate_value_at
 
 
 def _half_hours(start):
@@ -71,6 +71,24 @@ class CoveredRowsTests(unittest.TestCase):
         kept, skipped = covered_rows(profile, [agile, _cosy_day()])
         self.assertEqual(skipped, 1)
         self.assertEqual(kept, [])
+
+    def test_a_missing_cosy_slot_uses_yesterday(self):
+        today = [{
+            "valid_from": "2026-10-22T00:00:00Z",
+            "valid_to": "2026-10-22T12:00:00Z",
+            "value_inc_vat": 20.0,
+            "payment_method": None,
+        }]
+        yesterday = [{
+            "valid_from": "2026-10-21T12:00:00Z",
+            "valid_to": "2026-10-21T23:00:00Z",
+            "value_inc_vat": 12.5,
+            "payment_method": None,
+        }]
+        stamps = ["2026-10-22T01:00:00Z", "2026-10-22T18:00:00Z", "2026-10-22T23:30:00Z"]
+        series = cosy_series(today, yesterday, stamps)
+        self.assertEqual(series, [20.0, 12.5, None])
+        self.assertIsNone(rate_value_at(today, stamps[1]))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 import time
 from datetime import date, datetime, timedelta, time as dt_time
 from typing import List, Dict, Optional, Tuple
-import random
 import config
 import web_session
 from account_info import AccountInfo
@@ -9,14 +8,27 @@ from account_manager import AccountManager
 from queries import *
 from tariff import Tariff, TARIFFS
 from query_service import QueryService
-from comparison_engine import ComparisonEngine, ComparisonResult, TariffComparison
+from comparison_engine import (
+    ComparisonEngine,
+    ComparisonResult,
+    TariffComparison,
+    cosy_series,
+    rate_value_at,
+)
 from demand_model import forecast_consumption, load_consumption_history
 from hop import (
     decide_hop,
     saving_pence,
 )
 from notification_service import NotificationService
-from chart import create_tariff_comparison_chart
+from chart import create_forecast_chart, create_tariff_comparison_chart
+from report import (
+    early_report_needed,
+    format_report,
+    hop_decision_line,
+    short_name,
+    with_version,
+)
 import logging
 logger = logging.getLogger('octobot.bot_orchestrator')
 
@@ -70,6 +82,7 @@ class BotOrchestrator:
         self.last_final_datetime = None
         self.switched_on_date = None
         self.notification_service = None
+        self._version_stated_on = None
 
     def start(self) -> None:
         self.notification_service = NotificationService(config.NOTIFICATION_URLS, config.BATCH_NOTIFICATIONS)
@@ -111,12 +124,6 @@ class BotOrchestrator:
 
         if early and current_time == early and self.last_early_datetime != current_minute:
             self.last_early_datetime = current_minute
-            delay = random.randint(10, 900)
-            ns.send_notification(
-                f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
-                f"Initiating early comparison in {delay/60:.1f} minutes"
-            )
-            time.sleep(delay)
             if self._run_tariff_compare(phase="early"):
                 self.switched_on_date = today
             return
@@ -128,17 +135,10 @@ class BotOrchestrator:
         if self.switched_on_date == today:
             logger.info("Skipping final run - already switched after the early check")
             ns.send_notification(
-                f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
-                f"Skipping {config.EXECUTION_TIME} run; already switched after the early check."
+                f"Skipping {config.EXECUTION_TIME}. Already switched after the early check."
             )
             return
 
-        delay = random.randint(10, 900)
-        ns.send_notification(
-            f"[{get_timestamp()}] Octobot {config.BOT_VERSION} - "
-            f"Initiating comparison in {delay/60:.1f} minutes"
-        )
-        time.sleep(delay)
         if self._run_tariff_compare(phase="final"):
             self.switched_on_date = today
 
@@ -210,7 +210,7 @@ class BotOrchestrator:
 
             switched = self._compare_and_switch(phase)
         except Exception as e:
-            ns.send_notification(message=str(e), title="Octobot Error", is_error=True)
+            ns.send_notification(message=str(e), title=self._error_title(), is_error=True)
         finally:
             if config.BATCH_NOTIFICATIONS:
                 ns.send_batch_notification()
@@ -221,32 +221,32 @@ class BotOrchestrator:
                 self._warn_if_session_expiring()
         return switched
 
-    def _format_comparison_summary(self, result: ComparisonResult) -> str:
-        lines = []
+    def _with_version(self, message: str) -> str:
+        text, stated = with_version(self._version_stated_on, date.today(), config.BOT_VERSION, message)
+        self._version_stated_on = stated
+        return text
 
-        # Current consumption
-        current = result.current_tariff_comparison
-        if current.cost_breakdown:
-            lines.append(f"Total Consumption today: {current.cost_breakdown.total_kwh:.4f} kWh")
-            lines.append(
-                f"Current tariff {current.tariff.display_name}: "
-                f"£{current.cost_breakdown.total_cost_pounds:.2f} "
-                f"(£{current.cost_breakdown.consumption_cost_pounds:.2f} con + "
-                f"£{current.cost_breakdown.standing_charge_pounds:.2f} s/c)"
-            )
+    def _error_title(self) -> str:
+        today = date.today()
+        if self._version_stated_on == today:
+            return "Octobot Error"
+        self._version_stated_on = today
+        return f"Octobot Error {config.BOT_VERSION}"
 
-        for comparison in result.alternative_comparisons:
-            if comparison.is_valid:
-                lines.append(
-                    f"Potential cost on {comparison.tariff.display_name}: "
-                    f"£{comparison.cost_breakdown.total_cost_pounds:.2f} "
-                    f"(£{comparison.cost_breakdown.consumption_cost_pounds:.2f} con + "
-                    f"£{comparison.cost_breakdown.standing_charge_pounds:.2f} s/c)"
-                )
-            else:
-                lines.append(f"No cost for {comparison.tariff.display_name}")
-
-        return "\n".join(lines)
+    def _send_report(self, message: str, results: ComparisonResult, forecast_chart: Optional[str]) -> None:
+        ns = self.notification_service
+        ns.send_notification(self._with_version(message))
+        if not config.SEND_COMPARISON_CHART:
+            return
+        try:
+            cost_chart = create_tariff_comparison_chart(results)
+        except Exception as e:
+            logger.warning(f"Failed to create comparison chart: {e}")
+            cost_chart = None
+        if cost_chart:
+            ns.send_notification(message="", image_path=cost_chart, batchable=False)
+        if forecast_chart:
+            ns.send_notification(message="", image_path=forecast_chart, batchable=False)
 
     def _format_no_switch_message(self, result: ComparisonResult) -> str:
         current = result.current_tariff_comparison.tariff
@@ -284,42 +284,83 @@ class BotOrchestrator:
         )
 
     def _compare_and_switch(self, phase: str = "final") -> bool:
-        ns = self.notification_service
-        phase_prefix = "Early check: " if phase == "early" else ""
-        welcome_message = (
-            f"{'DRY RUN: ' if config.DRY_RUN else ''}{phase_prefix}"
-            f"Starting comparison of today's costs..."
-        )
-        ns.send_notification(welcome_message)
-
         account_info = self.account_manager.fetch_current_account_info()
-
         comparison_engine = ComparisonEngine(self.query_service)
         results = comparison_engine.compare_tariffs(account_info, self.tariffs)
 
-        summary = self._format_comparison_summary(results)
-        ns.send_notification(message=summary)
-        if config.SEND_COMPARISON_CHART:
-            try:
-                cost_chart = create_tariff_comparison_chart(results)
-            except Exception as e:
-                logger.warning(f"Failed to create comparison chart: {e}")
-                cost_chart = None
-            if cost_chart:
-                ns.send_notification(message="", image_path=cost_chart, batchable=False)
-
         pair = self._agile_cosy_pair()
-        if pair and account_info.current_tariff.id in ("agile", "cosy"):
+        hopping = bool(pair and account_info.current_tariff.id in ("agile", "cosy"))
+        prediction = None
+        prediction_error = None
+        forecast_chart = None
+        if hopping:
             agile, cosy = pair
             prediction, prediction_error = self._predict_tomorrow(
                 comparison_engine, account_info, agile, cosy
             )
-            ns.send_notification(self._format_prediction(prediction, prediction_error))
-            return self._decide_hop(results, prediction, agile, cosy, phase)
 
+        if hopping:
+            targets, decision = self._hop_plan(results, prediction, agile, cosy, phase)
+            switching = bool(targets)
+        else:
+            targets = []
+            switching = self._switches_now(results, phase)
+            decision = self._plain_decision(results, phase, switching)
+
+        comparisons_ok = all(item.is_valid for item in results.all_comparisons)
+        if hopping and prediction:
+            comparisons_ok = comparisons_ok and prediction["agile"].is_valid and prediction["cosy"].is_valid
+        method = prediction.get("method") if prediction else None
+        announce = phase != "early" or early_report_needed(
+            prediction_error, method, comparisons_ok, switching,
+        )
+        if announce:
+            if hopping:
+                forecast_chart = self._forecast_chart(prediction)
+            self._send_report(
+                format_report(results, prediction, prediction_error, decision, tomorrow=hopping),
+                results,
+                forecast_chart,
+            )
+
+        if hopping:
+            if phase == "early" or not targets:
+                return False
+            return self._perform_hop(targets)
+        if switching:
+            return self._perform_switch(results, account_info)
+        return False
+
+    def _switches_now(self, results: ComparisonResult, phase: str) -> bool:
+        if not results.should_switch:
+            return False
         if phase == "early":
-            return self._decide_early_switch(results, account_info)
-        return self._decide_final_switch(results, account_info)
+            return results.potential_savings > early_switch_threshold_pence()
+        return True
+
+    def _plain_decision(self, results: ComparisonResult, phase: str, switching: bool) -> str:
+        if not switching:
+            return self._format_no_switch_message(results)
+        name = short_name(results.cheapest_tariff.id, results.cheapest_tariff.display_name)
+        if phase == "early":
+            return f"Switching to {name} now."
+        return f"Switching to {name}."
+
+    def _forecast_chart(self, prediction: Optional[dict]) -> Optional[str]:
+        if not prediction or not prediction.get("stamps"):
+            return None
+        if not config.SEND_COMPARISON_CHART:
+            return None
+        try:
+            return create_forecast_chart(
+                prediction["stamps"],
+                prediction["consumption_kwh"],
+                prediction["agile_series"],
+                prediction["cosy_series"],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create forecast chart: {e}")
+            return None
 
     def _agile_cosy_pair(self) -> Optional[Tuple[Tariff, Tariff]]:
         by_id = {tariff.id: tariff for tariff in self.tariffs}
@@ -355,8 +396,17 @@ class BotOrchestrator:
         agile_price, cosy_price = engine.price_shared(
             [agile, cosy], account_info.region_code, tomorrow, profile
         )
+        stamps = [row["readAt"] for row in profile]
+        agile_series, cosy_line = self._rate_lines(
+            engine, account_info.region_code, tomorrow, agile, cosy, stamps,
+        )
         return {
             "tomorrow": tomorrow,
+            "profile": profile,
+            "stamps": stamps,
+            "consumption_kwh": [float(row.get("consumptionDelta") or 0) / 1000 for row in profile],
+            "agile_series": agile_series,
+            "cosy_series": cosy_line,
             "days": info.get("days"),
             "method": info.get("method"),
             "detail": info.get("detail") or "",
@@ -365,29 +415,27 @@ class BotOrchestrator:
             "cosy": cosy_price,
         }, None
 
-    def _format_prediction(self, prediction: Optional[dict], error: Optional[str]) -> str:
-        if error or not prediction:
-            return f"No prediction for tomorrow. {error or ''}".strip()
-        if prediction.get("method") == "ensemble":
-            err = prediction.get("walk_forward_daily_kwh")
-            err_txt = f" Recent daily error about {err:.2f} kWh." if err is not None else ""
-            head = f"Tomorrow, from the half-hour ensemble trained on {prediction['days']} days.{err_txt}"
-        else:
-            detail = prediction.get("detail") or ""
-            head = f"Tomorrow, from the same-slot average of {prediction['days']} days. {detail}".strip()
-        lines = [head]
-        for key in ("agile", "cosy"):
-            priced = prediction[key]
-            if priced.is_valid:
-                lines.append(
-                    f"{priced.tariff.display_name}: £{priced.cost_breakdown.total_cost_pounds:.2f}"
-                )
-            else:
-                lines.append(f"{priced.tariff.display_name}: {priced.error}")
-        note = prediction["agile"].note or prediction["cosy"].note
-        if note:
-            lines.append(note)
-        return "\n".join(lines)
+    def _rate_lines(self, engine: ComparisonEngine, region_code: str, tomorrow: date,
+                    agile: Tariff, cosy: Tariff, stamps: list):
+        agile_series = [None] * len(stamps)
+        cosy_today = []
+        cosy_yesterday = []
+        try:
+            _, agile_rates, _ = engine._get_potential_tariff_rates(agile, region_code, tomorrow)
+            agile_series = [rate_value_at(agile_rates, stamp) for stamp in stamps]
+        except Exception as e:
+            logger.warning(f"Agile rates for the forecast chart were not loaded: {e}")
+        try:
+            _, cosy_today, _ = engine._get_potential_tariff_rates(cosy, region_code, tomorrow)
+        except Exception as e:
+            logger.warning(f"Cosy rates for the forecast chart were not loaded: {e}")
+        try:
+            _, cosy_yesterday, _ = engine._get_potential_tariff_rates(
+                cosy, region_code, tomorrow - timedelta(days=1),
+            )
+        except Exception as e:
+            logger.warning(f"Yesterday's Cosy rates were not loaded: {e}")
+        return agile_series, cosy_series(cosy_today, cosy_yesterday, stamps)
 
     @staticmethod
     def _comparison_cost(results: ComparisonResult, tariff_id: str) -> Optional[float]:
@@ -399,9 +447,8 @@ class BotOrchestrator:
                 return comparison.total_cost
         return None
 
-    def _decide_hop(self, results: ComparisonResult, prediction: Optional[dict],
-                    agile: Tariff, cosy: Tariff, phase: str) -> bool:
-        ns = self.notification_service
+    def _hop_plan(self, results: ComparisonResult, prediction: Optional[dict],
+                  agile: Tariff, cosy: Tariff, phase: str):
         current_id = results.current_tariff_comparison.tariff.id
         today_saving = saving_pence(
             self._comparison_cost(results, "agile"),
@@ -425,64 +472,12 @@ class BotOrchestrator:
 
         targets = [agile if tariff_id == "agile" else cosy
                    for tariff_id in decide_hop(current_id, today_cosy_cheaper, tomorrow_agile_cheaper)]
-        ns.send_notification(self._format_hop_plan(
-            current_id, today_saving, today_cosy_cheaper, tomorrow_saving,
-            tomorrow_agile_cheaper, targets, phase,
-        ))
-        if phase == "early" or not targets:
-            return False
-        return self._perform_hop(targets)
-
-    def _format_hop_plan(self, current_id: str, today_saving: Optional[float],
-                         today_cosy_cheaper: bool, tomorrow_saving: Optional[float],
-                         tomorrow_agile_cheaper: bool, targets: list, phase: str) -> str:
-        lines = []
-        if today_saving is None:
-            lines.append("Today: could not compare Agile and Cosy.")
-        elif today_cosy_cheaper:
-            lines.append(
-                f"Today: Cosy is £{today_saving / 100:.2f} cheaper than Agile "
-                f"(over the £{config.SWITCH_THRESHOLD / 100:.2f} bar)."
-            )
-        elif today_saving > 0:
-            lines.append(
-                f"Today: Cosy is only £{today_saving / 100:.2f} cheaper, below the "
-                f"£{config.SWITCH_THRESHOLD / 100:.2f} bar."
-            )
-        else:
-            lines.append(f"Today: Agile is £{-today_saving / 100:.2f} cheaper than Cosy.")
-
-        if tomorrow_saving is None:
-            lines.append("Tomorrow: no Agile prediction, so not joining Agile.")
-        elif tomorrow_agile_cheaper:
-            lines.append(
-                f"Tomorrow: Agile is £{tomorrow_saving / 100:.2f} cheaper than Cosy "
-                f"(over the £{config.FORWARD_SWITCH_THRESHOLD / 100:.2f} bar)."
-            )
-        elif tomorrow_saving > 0:
-            lines.append(
-                f"Tomorrow: Agile is only £{tomorrow_saving / 100:.2f} cheaper, below the "
-                f"£{config.FORWARD_SWITCH_THRESHOLD / 100:.2f} bar."
-            )
-        else:
-            lines.append(f"Tomorrow: Cosy is £{-tomorrow_saving / 100:.2f} cheaper than Agile.")
-
-        if current_id == "agile" and not today_cosy_cheaper:
-            if tomorrow_agile_cheaper or tomorrow_saving is None:
-                lines.append("Staying on Agile.")
-            else:
-                lines.append(
-                    "Staying on Agile. A Cosy day tomorrow can be switched once it has been metered."
-                )
-        elif not targets:
-            lines.append(f"Staying on {current_id.title()}.")
-        else:
-            names = " then ".join(tariff.display_name for tariff in targets)
-            lines.append(f"Switching to {names}.")
-
-        if phase == "early" and targets:
-            lines.append(f"Not switching yet. This runs at {config.EXECUTION_TIME}.")
-        return "\n".join(lines)
+        line = hop_decision_line(
+            current_id, today_cosy_cheaper, tomorrow_saving, tomorrow_agile_cheaper,
+            [short_name(tariff.id, tariff.display_name) for tariff in targets],
+            phase, config.EXECUTION_TIME,
+        )
+        return targets, line
 
     def _perform_hop(self, targets: list) -> bool:
         ns = self.notification_service
@@ -519,41 +514,6 @@ class BotOrchestrator:
                 )
                 return True
         return True
-
-    def _decide_early_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
-        ns = self.notification_service
-        bar = early_switch_threshold_pence()
-        cheapest_name = results.cheapest_tariff.display_name if results.cheapest_tariff else "none"
-
-        if results.should_switch and results.potential_savings > bar:
-            ns.send_notification(
-                f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
-                f"are over the £{bar / 100:.2f} early-switch threshold. "
-                f"Switching now rather than waiting until {config.EXECUTION_TIME}."
-            )
-            return self._perform_switch(results, account_info)
-
-        if results.should_switch:
-            ns.send_notification(
-                f"Early check: savings of £{results.potential_savings / 100:.2f} on {cheapest_name} "
-                f"are below the £{bar / 100:.2f} early-switch threshold. "
-                f"Waiting until {config.EXECUTION_TIME} to confirm."
-            )
-            return False
-
-        ns.send_notification(
-            f"Early check: {self._format_no_switch_message(results)} "
-            f"Rechecking at {config.EXECUTION_TIME}."
-        )
-        return False
-
-    def _decide_final_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
-        ns = self.notification_service
-        if results.should_switch:
-            ns.send_notification(f"Initiating Switch to {results.cheapest_tariff.display_name}")
-            return self._perform_switch(results, account_info)
-        ns.send_notification(self._format_no_switch_message(results))
-        return False
 
     def _perform_switch(self, results: ComparisonResult, account_info: AccountInfo) -> bool:
         ns = self.notification_service
