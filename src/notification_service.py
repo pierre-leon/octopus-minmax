@@ -1,4 +1,4 @@
-from apprise import Apprise
+from apprise import Apprise, NotifyFormat
 from datetime import datetime
 from typing import List, Optional
 import logging
@@ -67,7 +67,7 @@ class NotificationService:
                 logger.warning("No notification services configured. Check config.NOTIFICATION_URLS.")
                 logger.info(message)
                 return False
-            notify_kwargs = {"body": message, "title": title}
+            notify_kwargs = {"body": message, "title": title, "body_format": NotifyFormat.MARKDOWN}
             if image_path:
                 abs_path = os.path.abspath(image_path)
                 if not os.path.isfile(abs_path):
@@ -85,7 +85,7 @@ class NotificationService:
                 logger.error(f"Failed to send notification (title={title!r}, attach={bool(image_path)})")
                 if image_path and message:
                     logger.info("Retrying notification without attachment")
-                    retry_kwargs = {"body": message, "title": title}
+                    retry_kwargs = {"body": message, "title": title, "body_format": NotifyFormat.MARKDOWN}
                     success = apprise.notify(**retry_kwargs)
                     if success:
                         logger.info(f"Sent notification without attachment: {message}")
@@ -107,7 +107,7 @@ class NotificationService:
             logger.warning("Cannot send batch - no notification services configured. Check config.NOTIFICATION_URLS.")
             logger.info(body)
             return False
-        notify_kwargs = {"body": body, "title": title}
+        notify_kwargs = {"body": body, "title": title, "body_format": NotifyFormat.MARKDOWN}
         if self._batch_image_path:
             abs_path = os.path.abspath(self._batch_image_path)
             if os.path.isfile(abs_path):

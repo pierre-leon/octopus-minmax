@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import date, datetime, timedelta, time as dt_time
 from typing import List, Dict, Optional, Tuple
@@ -15,17 +16,19 @@ from comparison_engine import (
     cosy_series,
     rate_value_at,
 )
-from demand_model import forecast_consumption, load_consumption_history
+from demand_model import data_dir, forecast_consumption, load_consumption_history
 from hop import (
     decide_hop,
     saving_pence,
 )
 from notification_service import NotificationService
-from chart import create_forecast_chart, create_tariff_comparison_chart
+from chart import align_actuals, create_forecast_chart, create_tariff_comparison_chart
+from forecast_log import recalled_kwh, remember_kwh
 from report import (
     early_report_needed,
     format_report,
     hop_decision_line,
+    profile_kwh,
     short_name,
     with_version,
 )
@@ -314,11 +317,21 @@ class BotOrchestrator:
         announce = phase != "early" or early_report_needed(
             prediction_error, method, comparisons_ok, switching,
         )
+        predicted_today = recalled_kwh(self._forecast_log_path(), date.today())
+        if prediction and prediction.get("profile"):
+            remember_kwh(
+                self._forecast_log_path(),
+                prediction["tomorrow"],
+                profile_kwh(prediction["profile"]),
+            )
         if announce:
             if hopping:
-                forecast_chart = self._forecast_chart(prediction)
+                forecast_chart = self._forecast_chart(prediction, account_info.consumption)
             self._send_report(
-                format_report(results, prediction, prediction_error, decision, tomorrow=hopping),
+                format_report(
+                    results, prediction, prediction_error, decision,
+                    tomorrow=hopping, predicted_kwh=predicted_today,
+                ),
                 results,
                 forecast_chart,
             )
@@ -346,7 +359,10 @@ class BotOrchestrator:
             return f"Switching to {name} now."
         return f"Switching to {name}."
 
-    def _forecast_chart(self, prediction: Optional[dict]) -> Optional[str]:
+    def _forecast_log_path(self) -> str:
+        return os.path.join(data_dir(), "forecast_log.json")
+
+    def _forecast_chart(self, prediction: Optional[dict], consumption: list) -> Optional[str]:
         if not prediction or not prediction.get("stamps"):
             return None
         if not config.SEND_COMPARISON_CHART:
@@ -357,6 +373,7 @@ class BotOrchestrator:
                 prediction["consumption_kwh"],
                 prediction["agile_series"],
                 prediction["cosy_series"],
+                actual_kwh=align_actuals(prediction["stamps"], consumption or []),
             )
         except Exception as e:
             logger.warning(f"Failed to create forecast chart: {e}")

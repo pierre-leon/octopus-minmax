@@ -1,12 +1,13 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 
 from comparison_engine import ComparisonResult
@@ -21,6 +22,8 @@ _CONSUMPTION = "#3DDC97"
 _ON_CONSUMPTION = "#10241c"
 _AGILE = "#F0C14A"
 _COSY = "#FF7A59"
+_TODAY_HIGHER = "#FF4DCD"
+_FORECAST_HIGHER = "#6CB6FF"
 
 STANDING_COLOR = _STANDING
 CONSUMPTION_COLOR = _CONSUMPTION
@@ -193,10 +196,87 @@ def _line(values: Sequence[Optional[float]]) -> np.ndarray:
     return np.array([np.nan if value is None else value for value in values], dtype=float)
 
 
+def _fit_forecast_axes(ax, use) -> None:
+    """Keep the price axis open below zero, with both scales sharing that line."""
+    finite = [float(value) for line in ax.get_lines() for value in line.get_ydata() if np.isfinite(value)]
+    low = min(finite) if finite else 0.0
+    price_low, price_top = ax.get_ylim()
+    _, kwh_top = use.get_ylim()
+    if low >= 0:
+        ax.set_ylim(0, max(price_top, 0))
+        use.set_ylim(bottom=0)
+        return
+    price_top = max(price_top, 1.0)
+    price_low = min(price_low, low - max(price_top - low, 1.0) * 0.05)
+    kwh_top = max(kwh_top, 1e-3)
+    use.set_ylim(-kwh_top * abs(price_low) / price_top, kwh_top)
+    kept = [tick for tick in use.get_yticks() if tick >= -1e-9]
+    if kept:
+        use.set_yticks(kept)
+    ax.set_ylim(price_low, price_top)
+    ax.axhline(0, color="white", linewidth=0.8, zorder=2)
+
+
+def _price_line(ax, xs, values, color: str, label: str) -> None:
+    """A white edge under the rate so it stays visible across the bars."""
+    series = _line(values)
+    ax.plot(xs, series, color="white", linewidth=5.0, drawstyle="steps-mid",
+            solid_capstyle="round", zorder=3)
+    ax.plot(xs, series, color=color, linewidth=2.6, drawstyle="steps-mid",
+            solid_capstyle="round", label=label, zorder=4)
+
+
+def _clock(raw: str) -> str:
+    text = raw.strip().replace("Z", "+00:00")
+    if len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+        text = f"{text[:-2]}:{text[-2:]}"
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    moment = moment.astimezone(timezone.utc)
+    minute = 0 if moment.minute < 30 else 30
+    return f"{moment.hour:02d}:{minute:02d}"
+
+
+def align_actuals(stamps: Sequence[str], entries: Sequence[dict]) -> list:
+    """Today's kWh on the same UTC clock as each forecast stamp."""
+    totals = {}
+    for entry in entries:
+        raw = entry.get("readAt")
+        if not raw or entry.get("consumptionDelta") is None:
+            continue
+        clock = _clock(raw)
+        totals[clock] = totals.get(clock, 0.0) + float(entry["consumptionDelta"]) / 1000
+    return [totals.get(_clock(stamp)) for stamp in stamps]
+
+
+def bar_layers(predicted: Sequence[float], actual: Optional[Sequence[Optional[float]]]):
+    """Overlap in the first list, today's extra in the second, the forecast's extra in the third."""
+    actuals = list(actual) if actual is not None else [None] * len(predicted)
+    shared, today_higher, forecast_higher = [], [], []
+    for pred, act in zip(predicted, actuals):
+        pred = max(float(pred), 0.0)
+        if act is None:
+            shared.append(pred)
+            today_higher.append(0.0)
+            forecast_higher.append(0.0)
+            continue
+        act = max(float(act), 0.0)
+        shared.append(min(pred, act))
+        if act > pred:
+            today_higher.append(act - pred)
+            forecast_higher.append(0.0)
+        else:
+            today_higher.append(0.0)
+            forecast_higher.append(pred - act)
+    return shared, today_higher, forecast_higher
+
+
 def create_forecast_chart(stamps: Sequence[str], consumption_kwh: Sequence[float],
                           agile_pence: Sequence[Optional[float]],
                           cosy_pence: Sequence[Optional[float]],
-                          path: Optional[str] = None) -> Optional[str]:
+                          path: Optional[str] = None,
+                          actual_kwh: Optional[Sequence[Optional[float]]] = None) -> Optional[str]:
     """Bars for every predicted half-hour. A missing rate stops that line."""
     count = len(stamps)
     if count == 0 or len(consumption_kwh) != count:
@@ -209,21 +289,24 @@ def create_forecast_chart(stamps: Sequence[str], consumption_kwh: Sequence[float
     ax.set_facecolor(_INK)
     use = ax.twinx()
     xs = np.arange(count)
-    use.bar(xs, consumption_kwh, color=_CONSUMPTION, width=0.84, zorder=1)
+    if actual_kwh is not None and len(actual_kwh) != count:
+        actual_kwh = None
+    shared, today_higher, forecast_higher = bar_layers(consumption_kwh, actual_kwh)
+    use.bar(xs, shared, color=_CONSUMPTION, width=0.84, zorder=1)
+    use.bar(xs, forecast_higher, bottom=shared, color=_FORECAST_HIGHER, width=0.84, zorder=1)
+    today_bottom = [left + extra for left, extra in zip(shared, forecast_higher)]
+    use.bar(xs, today_higher, bottom=today_bottom, color=_TODAY_HIGHER, width=0.84, zorder=1)
     ax.set_zorder(use.get_zorder() + 1)
     ax.patch.set_visible(False)
 
     if any(value is not None for value in agile_pence):
-        ax.plot(xs, _line(agile_pence), color=_AGILE, linewidth=1.8,
-                drawstyle="steps-mid", label="Agile", zorder=3)
+        _price_line(ax, xs, agile_pence, _AGILE, "Agile")
     if any(value is not None for value in cosy_pence):
-        ax.plot(xs, _line(cosy_pence), color=_COSY, linewidth=1.8,
-                drawstyle="steps-mid", label="Cosy", zorder=3)
+        _price_line(ax, xs, cosy_pence, _COSY, "Cosy")
 
     ax.set_ylabel("p/kWh", color="white")
     use.set_ylabel("kWh", color="white")
-    ax.set_ylim(bottom=0)
-    use.set_ylim(bottom=0)
+    _fit_forecast_axes(ax, use)
     ax.set_xlim(-0.6, count - 0.4)
     labels = [_local_label(stamp) if index % 4 == 0 else "" for index, stamp in enumerate(stamps)]
     ax.set_xticks(xs)
@@ -235,6 +318,15 @@ def create_forecast_chart(stamps: Sequence[str], consumption_kwh: Sequence[float
     for spine in list(ax.spines.values()) + list(use.spines.values()):
         spine.set_color(_GRID)
     handles, labels = ax.get_legend_handles_labels()
+    if actual_kwh is not None:
+        handles = [Patch(facecolor=_CONSUMPTION, label="Forecast")] + handles
+        labels = ["Forecast"] + labels
+        if any(value > 0 for value in today_higher):
+            handles.append(Patch(facecolor=_TODAY_HIGHER, label="Today higher"))
+            labels.append("Today higher")
+        if any(value > 0 for value in forecast_higher):
+            handles.append(Patch(facecolor=_FORECAST_HIGHER, label="Forecast higher"))
+            labels.append("Forecast higher")
     if handles:
         legend = ax.legend(handles, labels, loc="upper left", frameon=False, fontsize=8)
         for text in legend.get_texts():

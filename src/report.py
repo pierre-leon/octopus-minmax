@@ -22,6 +22,19 @@ def profile_kwh(profile: Sequence[dict]) -> float:
     return sum(float(row.get("consumptionDelta") or 0) for row in profile) / 1000
 
 
+# Telegram's HTML pass collapses a truly empty line, so the gap has to hold a character.
+_SECTION_GAP = "\u00a0"
+
+
+def consumption_error_suffix(actual: float, predicted: Optional[float]) -> str:
+    """△ when today beat the forecast, ▽ when it came in under."""
+    if predicted is None or predicted <= 0:
+        return ""
+    pct = (actual - predicted) / predicted * 100
+    arrow = "△" if pct >= 0 else "▽"
+    return f" {arrow}{abs(pct):.0f}%"
+
+
 def with_version(stated_on, today, version: str, message: str):
     """Version sits on the first report of the day. Returns the text and the day it was stated."""
     if stated_on == today:
@@ -50,7 +63,7 @@ def _money_row(comparison: TariffComparison, bold: bool, standing: bool) -> str:
         return f"{name}: {comparison.error or 'no price'}"
     label = f"{name} £{comparison.cost_breakdown.total_cost_pounds:.2f}"
     if bold:
-        label = f"*{label}*"
+        label = f"**{label}**"
     pence = _unit_pence(comparison)
     row = f"{label} | {pence:.1f}p" if pence is not None else label
     if standing:
@@ -66,7 +79,7 @@ def _bold_ids(comparisons: Sequence[TariffComparison]) -> set:
     return {item.tariff.id for item in comparisons if item.is_valid and item.total_cost == cheapest}
 
 
-def format_today(result: ComparisonResult) -> str:
+def format_today(result: ComparisonResult, predicted_kwh: Optional[float] = None) -> str:
     rows = [result.current_tariff_comparison] + list(result.alternative_comparisons)
     bold = _bold_ids(rows)
     kwh = None
@@ -74,17 +87,20 @@ def format_today(result: ComparisonResult) -> str:
         if comparison.cost_breakdown is not None:
             kwh = comparison.cost_breakdown.total_kwh
             break
-    lines = [f"*Today {kwh:.2f} kWh*" if kwh is not None else "*Today*"]
+    if kwh is None:
+        lines = ["**Today**"]
+    else:
+        lines = [f"**Today {kwh:.2f} kWh**{consumption_error_suffix(kwh, predicted_kwh)}"]
     lines.extend(_money_row(comparison, comparison.tariff.id in bold, standing=False) for comparison in rows)
     return "\n".join(lines)
 
 
 def format_tomorrow(prediction: Optional[dict], error: Optional[str]) -> str:
     if error or not prediction:
-        return f"*Tomorrow*\nNo forecast. {error or ''}".strip()
+        return f"**Tomorrow**\nNo forecast. {error or ''}".strip()
     profile = prediction.get("profile") or []
     kwh = profile_kwh(profile) if profile else None
-    lines = [f"*Tomorrow {kwh:.2f}kWh*" if kwh is not None else "*Tomorrow*"]
+    lines = [f"**Tomorrow {kwh:.2f}kWh**" if kwh is not None else "**Tomorrow**"]
     priced = [prediction[key] for key in ("agile", "cosy") if prediction.get(key) is not None]
     bold = _bold_ids(priced)
     lines.extend(
@@ -113,10 +129,10 @@ def hop_decision_line(current_id: str, today_cosy_cheaper: bool, tomorrow_saving
 
 
 def format_report(result: ComparisonResult, prediction: Optional[dict], error: Optional[str],
-                  decision: str, tomorrow: bool = True) -> str:
-    parts = [format_today(result)]
+                  decision: str, tomorrow: bool = True, predicted_kwh: Optional[float] = None) -> str:
+    parts = [format_today(result, predicted_kwh)]
     if tomorrow:
-        parts.extend(["", format_tomorrow(prediction, error)])
+        parts.extend([_SECTION_GAP, format_tomorrow(prediction, error)])
     if decision:
         parts.append(decision)
     return "\n".join(parts)
